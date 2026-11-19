@@ -1,0 +1,1185 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mobil di lintasan</title><style>.mcap{display:none!important}@media (max-width:560px){.stat .v{font-size:20px!important}.stats{align-items:flex-end}}@media (min-width:561px){.vset{top:4px!important}#stats{top:var(--vset-h,44px)!important}}</style><style>@media (max-width:560px){body > header{display:none}}</style><script>window.FIG_A = () => innerWidth <= 560 ? 1.1 : .75;</script><script>window.LBL_U = () => { if (innerWidth > 560) return 0; const s = document.getElementById("fig"); return s && s.clientWidth && s.viewBox.baseVal.width ? s.viewBox.baseVal.width / s.clientWidth : 0; };</script></head><body>
+<script>
+/* ============================================================
+   Colorfigures core: projection, shapes, shading, ink, labels, page shell.
+   A figure page includes this file (scripts/build.py inlines it), then calls mountFigure({...}).
+   See SKILL.md for the drawing contract and conventions.
+   One fixed view (front-left-top) and one fixed light (from above, behind the viewer's right shoulder: the front is lit,
+   the left side is in shade, and cast shadows fall toward the lower left of the screen).
+   ============================================================ */
+
+/* ---------- palettes ---------- */
+const PALS = {
+  mustard: { l:'#f4b829', m:'#d49c1f', d:'#4e4a18' },
+  tomato:  { l:'#ef6a4c', m:'#cf5038', d:'#4a2219' },
+  mint:    { l:'#93d3b0', m:'#71b693', d:'#1f4034' },
+  cobalt:  { l:'#76a0e2', m:'#5a82c6', d:'#1c2948' },
+  blush:   { l:'#f3a6bb', m:'#d8869c', d:'#4b2430' },
+};
+const METAL   = { l:'#eef0f0', m:'#c6ccce', d:'#8f989b' };
+const CLEAR   = { l:'#e4f2f4', m:'#c4dfe4', d:'#97b9c0' };
+const CERAMIC = { l:'#fbfaf3', m:'#e3e0d2', d:'#bdb8a6' };
+const DARK    = { l:'#55504a', m:'#3d3935', d:'#272421' };
+const INK = '#231e16';
+const SHADOW = '#41538f';
+
+/* ---------- projection (x = depth toward viewer-right, y = toward viewer-left, z = up) ---------- */
+const C = Math.cos(Math.PI/6), S = Math.sin(Math.PI/6);
+let OX = 0, OY = 0;
+/* Free orthographic camera (internal names start with CAM_ / cam so they never clash with a figure's own names). YAW turns the viewer around the vertical axis (45° = the classic front-left view),
+   PITCH is how far it looks down (35.26° = true isometric). At the defaults P() is exactly the old isometric
+   projection, so every figure drawn for it still lines up. Drag the figure to orbit; double-click to reset.
+   rotV(n) maps a world direction into the default view's frame, so vis / tone / any "sum of rotV > 0" test keep
+   working at every angle: the viewer is always (1,1,1) and the light stays put relative to the viewer. */
+let VIEW = 0, RC = [0, 0], RCZ = 0;
+const VIEW_NAMES = ['depan', 'sisi kiri', 'belakang', 'sisi kanan'];
+const TURNS = [0, 2];
+const YAW0 = 45, PITCH0 = Math.atan(1/Math.SQRT2) * 180/Math.PI, CAM_K = Math.sqrt(1.5);
+let YAW = YAW0, PITCH = PITCH0, CAM_R, CAM_U, CAM_V, CAM_D;                       // right, up, toward viewer, screen-down
+const camBasis = (yaw, pitch) => { const t = yaw*Math.PI/180, p = pitch*Math.PI/180, ct = Math.cos(t), st = Math.sin(t), cp = Math.cos(p), sp2 = Math.sin(p);
+  return { R:[st,-ct,0], U:[-sp2*ct,-sp2*st,cp], V:[cp*ct,cp*st,sp2] }; };
+const CAM_B0 = camBasis(YAW0, PITCH0);
+// CAM_LIM: how far (deg) the camera may turn either side of the front view; null = all the way round (set per figure)
+let CAM_LIM = null;
+function setCam(yaw, pitch){ YAW = CAM_LIM == null ? yaw : Math.max(YAW0 - CAM_LIM, Math.min(YAW0 + CAM_LIM, yaw));
+  PITCH = CAM_LIM == null ? Math.max(6, Math.min(78, pitch)) : Math.max(15, Math.min(62, pitch)); const b = camBasis(YAW, PITCH); CAM_R = b.R; CAM_U = b.U; CAM_V = b.V; CAM_D = CAM_U.map(v => -v); }
+setCam(YAW0, PITCH0);
+const camDot = (a,b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const rotV = n => { const r = camDot(n,CAM_R), u = camDot(n,CAM_U), v = camDot(n,CAM_V); return [0,1,2].map(i => CAM_B0.R[i]*r + CAM_B0.U[i]*u + CAM_B0.V[i]*v); };
+// the light's ground direction turns with the viewer's yaw only (shadows always fall toward the lower left of the screen)
+const yawTurn = ([x,y]) => { const t = (YAW - YAW0)*Math.PI/180, c = Math.cos(t), s = Math.sin(t); return [x*c - y*s, x*s + y*c]; };
+const rotXY = (x,y) => [x, y];                                                // kept for old callers
+const P0 = (x,y,z) => [(x-y)*C + OX, (x+y)*S - z + OY];                       // raw iso
+const P  = (x,y,z) => { const q = [x-RC[0], y-RC[1], z-RCZ];
+  return [CAM_K*camDot(q,CAM_R) + (RC[0]-RC[1])*C + OX, CAM_K*camDot(q,CAM_D) + (RC[0]+RC[1])*S - RCZ + OY]; };
+const Dv = (x,y,z) => [CAM_K*camDot([x,y,z],CAM_R), CAM_K*camDot([x,y,z],CAM_D)];
+// distance toward the viewer: draw parts with smaller depth first
+const depthOf = p => camDot(p, CAM_V);
+// sort [{at:[x,y,z], svg}] back-to-front for the current camera. A part may also give box:[[x0,y0,z0],[x1,y1,z1]]:
+// when two boxes are separated along x, y or z, the one on the viewer's side goes last (a centre point alone gets long
+// or wrapping parts wrong: a pole beside a row of keys, a spout reaching past a cup).
+const boxMid = b => [0,1,2].map(k => (b[0][k] + b[1][k]) / 2);
+const sepOrder = (p, q) => { if (!p.box || !q.box) return 0;
+  for (let k = 0; k < 3; k++){ if (p.box[1][k] <= q.box[0][k] + 1e-6) return CAM_V[k] >= 0 ? -1 : 1; if (q.box[1][k] <= p.box[0][k] + 1e-6) return CAM_V[k] >= 0 ? 1 : -1; }
+  return 0; };
+const byDepth = parts => parts.filter(Boolean).sort((p,q) => sepOrder(p,q) || (depthOf(p.at || boxMid(p.box)) - depthOf(q.at || boxMid(q.box)))).map(p => p.svg).join('');
+// the half of a vertical ring that faces the viewer / is turned away, as [from, to] angles in degrees (0 = +x, 90 = +y)
+const nearHalf = () => [YAW - 90, YAW + 90], farHalf = () => [YAW + 90, YAW + 270];
+// an open container (cup, bin, cone, drum) between two rings: far inner wall, then its contents, then the near outer wall
+const openShell = (A, B, colour, contents = '') => loft(A, B, colour, true) + contents + loft(A, B, colour);
+const f  = v => v.toFixed(1);
+const pd = (pts, close=true) => 'M' + pts.map(p => { const q = P(p[0],p[1],p[2]); return f(q[0])+' '+f(q[1]); }).join('L') + (close ? 'Z' : '');
+const sp = pts => 'M' + pts.map(q => f(q[0])+' '+f(q[1])).join('L') + 'Z';
+
+/* ---------- 2D shapes in a plane's (u,v) coords (v up), mapped to 3D by a plane ---------- */
+const arcUV  = (cu,cv,r,a0,a1,n=7) => { const o=[]; for (let i=0;i<=n;i++){ const a=(a0+(a1-a0)*i/n)*Math.PI/180; o.push([cu+r*Math.cos(a), cv+r*Math.sin(a)]); } return o; };
+const rrUV   = (u0,v0,u1,v1,r,n=7) => r <= 0 ? rectUV(u0,v0,u1,v1) : [...arcUV(u1-r,v0+r,r,-90,0,n), ...arcUV(u1-r,v1-r,r,0,90,n), ...arcUV(u0+r,v1-r,r,90,180,n), ...arcUV(u0+r,v0+r,r,180,270,n)];
+const rectUV = (u0,v0,u1,v1) => [[u0,v0],[u1,v0],[u1,v1],[u0,v1]];
+const ellUV  = (cu,cv,ru,rv,n=24) => Array.from({length:n}, (_,i) => { const a=i/n*2*Math.PI; return [cu+ru*Math.cos(a), cv+rv*Math.sin(a)]; });
+const PX = x => ([u,v]) => [x,u,v];      // front-facing plane x = const   (u = y, v = z)
+const PY = y => ([u,v]) => [u,y,v];      // side plane y = const           (u = x, v = z)
+const PZ = z => ([u,v]) => [u,v,z];      // horizontal plane z = const     (u = x, v = y)
+const on = (plane, uv) => uv.map(plane);
+
+/* ---------- vectors + shading ---------- */
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]], dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const norm=a=>{ const l=Math.hypot(...a)||1; return a.map(v=>v/l); };
+const avg=ps=>ps.reduce((s,p)=>[s[0]+p[0]/ps.length,s[1]+p[1]/ps.length,s[2]+p[2]/ps.length],[0,0,0]);
+const vis = n => { const r = rotV(n); return r[0]+r[1]+r[2] > 1e-6; };   // viewer looks from (+1,+1,+1) after the turn
+const facing = vis;                                                       // readable alias: is this face toward the viewer?
+const SHADOW_K = 0.85, AZ_MIN = 20, AZ_MAX = 160;
+// cast shadows are drawn shorter than the shading light implies (0.45 × height instead of 0.85 ×): long shadows of tall
+// parts on thin supports (a lamp shade, a fan head) land far from the object and read as separate blobs
+const SHADOW_LEN = 0.45;
+let L = [0,0,1], SH = [0,0];
+function setLight(deg){ const a=deg*Math.PI/180; SH=[SHADOW_K*Math.cos(a), SHADOW_K*Math.sin(a)]; L=norm([-SH[0],-SH[1],1]); }
+const LIN = norm([.6,.2,1]);                       // fixed light for interiors / small props
+// Three flat tones, but blended across a narrow band at each step, so a face that turns past a threshold while the
+// figure rotates fades between tones instead of snapping (at rest almost every face still sits on a pure tone).
+const SOFT = .18;
+const step3 = (d, hi, lo, m) => { const ss = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a)/(b - a))); return k*k*(3 - 2*k); };
+  const a = ss(hi - SOFT, hi + SOFT, d), b = ss(lo - SOFT, lo + SOFT, d);
+  return a >= 1 ? m.l : b <= 0 ? m.d : a > 0 ? mix(m.m, m.l, a) : b < 1 ? mix(m.d, m.m, b) : m.m; };
+const tone  = (n,m) => step3(dot(rotV(n),L),   -.15, -.45, m);   // exterior, follows the sun
+const toneI = (n,m) => step3(dot(rotV(n),LIN),  .6,   .05, m);   // interior / props
+const mix = (a,b,t) => '#' + [1,3,5].map(i => Math.round(parseInt(a.substr(i,2),16)*(1-t) + parseInt(b.substr(i,2),16)*t).toString(16).padStart(2,'0')).join('');
+const matOf = hex => ({ l:hex, m:mix(hex,'#000000',.16), d:mix(hex,'#000000',.42) });
+const ease = t => t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+
+/* ---------- drawing primitives (all return SVG strings) ---------- */
+const ink   = (d,w=1.0) => `<path d="${d}" fill="none" stroke="${INK}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"/>`;
+const fill  = (d,c,extra='') => `<path d="${d}" fill="${c}" ${extra}/>`;
+const face  = (d,c) => `<path d="${d}" fill="${c}" stroke="${c}" stroke-width=".7" stroke-linejoin="round"/>`;
+const shape = (pts,c,w=.9) => fill(pd(pts),c) + (w ? ink(pd(pts),w) : '');
+const line  = (pts,w=.9) => ink(pd(pts,false),w);
+// Loft between two rings of equal length (closed). colour(n) picks each strip's fill; flip = seen from inside.
+function loft(A, B, colour, flip=false){
+  const n=A.length, cen=avg(A.concat(B)); let s='';
+  for (let i=0;i<n;i++){
+    const a0=A[i], a1=A[(i+1)%n], b1=B[(i+1)%n], b0=B[i];
+    let nr = norm(cross(sub(a1,a0), sub(b0,a0)));
+    if (!isFinite(nr[0])) continue;
+    if (dot(nr, sub(avg([a0,a1,b1,b0]), cen)) < 0) nr = nr.map(v=>-v);
+    if (flip) nr = nr.map(v=>-v);
+    if (vis(nr)) s += face(pd([a0,a1,b1,b0]), colour(nr));
+  }
+  return s;
+}
+function hull(pts){
+  pts = pts.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]); const lo=[], up=[];
+  for (const p of pts){ while(lo.length>=2 && cr(lo[lo.length-2],lo[lo.length-1],p)<=0) lo.pop(); lo.push(p); }
+  for (const p of pts.reverse()){ while(up.length>=2 && cr(up[up.length-2],up[up.length-1],p)<=0) up.pop(); up.push(p); }
+  lo.pop(); up.pop(); return lo.concat(up);
+}
+// Silhouette ink, weighted by how thick the part is on screen (like a hand inker): the w you pass is the most it gets.
+// Thickness = 2 × area / perimeter of the outline (a rod's diameter, about half a box's width), as a share of the
+// frame width. A long thin rod, a handle or a knob stays light (~1–1.5); a grinder, kettle or machine body gets the
+// heavy ~2.4–2.8. Thin parts stay thin and parts keep air between them.
+const hullInk = (pts3, w=1.4) => { const h = hull(pts3.map(p=>P(...p))); let a = 0, per = 0;
+  for (let i = 0; i < h.length; i++){ const p = h[i], q = h[(i+1) % h.length]; a += p[0]*q[1] - q[0]*p[1]; per += Math.hypot(q[0]-p[0], q[1]-p[1]); }
+  const thick = per ? Math.abs(a) / per / (INK_K * INK_REF_VB) : 0;
+  return ink(sp(h), Math.min(w, .9 + 20*thick)); };
+// Axis-aligned box: three visible faces, shaded, each outlined. shade = tone (sunlit) or toneI (interior).
+function box(x0,y0,z0,x1,y1,z1,m,shade=toneI,w=.9){
+  // all six faces, drawn only when they face the viewer (sides first, then top) — correct in every VIEW
+  const F = [
+    [[0,1,0],  [[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]]],
+    [[1,0,0],  [[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]]],
+    [[0,-1,0], [[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1]]],
+    [[-1,0,0], [[x0,y0,z0],[x0,y1,z0],[x0,y1,z1],[x0,y0,z1]]],
+    [[0,0,1],  [[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]]] ];
+  return F.filter(([n]) => vis(n)).map(([n,q]) => shape(q, shade(n,m), w)).join('');
+}
+// Rounded-profile extrusion: profile (u=y, v=z) swept along x from x0 to x1. Body of most machines.
+function extrude(profileUV, x0, x1, m, shade=tone){ return loft(on(PX(x0),profileUV), on(PX(x1),profileUV), n=>shade(n,m)); }
+// Vertical cylinder (axis z) centred (x,y), radius r from z0 to z1, with top cap.
+function cyl(x,y,z0,z1,r,m,shade=toneI,w=1.2,n=24){
+  const A=on(PZ(z0),ellUV(x,y,r,r,n)), B=on(PZ(z1),ellUV(x,y,r,r,n));
+  return loft(A,B,nr=>shade(nr,m)) + fill(pd(B),shade([0,0,1],m)) + hullInk([...A,...B],w) + ink(pd(B),w*.8);
+}
+// Cylinder lying along x (e.g. a knob or dial sticking out of a front face): centred (y,z), from x0 to x1.
+function cylX(x0,x1,y,z,r,m,shade=toneI,w=1.1,n=20){
+  const A=on(PX(x0),ellUV(y,z,r,r,n)), B=on(PX(x1),ellUV(y,z,r,r,n));
+  // cap on whichever end faces the viewer (the +x end in VIEW 0)
+  const capB = vis([1,0,0]), cap = capB ? B : A, cn = capB ? [1,0,0] : [-1,0,0];
+  return loft(A,B,nr=>shade(nr,m)) + (vis(cn) ? fill(pd(cap),shade(cn,m)) : '') + hullInk([...A,...B],w) + (vis(cn) ? ink(pd(cap),w*.8) : '');
+}
+// Cylinder between any two 3D points a and b (a lamp arm, a rod, a pipe at an angle, a handle bar), radius r.
+// The end facing the viewer gets a cap. For a tapered part (a cone, a lamp shade) pass r1 for the radius at b.
+function rod(a, b, r, m, shade=toneI, w=1, r1=r, n=16){
+  const d = norm(sub(b, a)), u = norm(cross(d, Math.abs(d[2]) < .9 ? [0,0,1] : [1,0,0])), v = cross(d, u);
+  const ring = (p, rr) => Array.from({length:n}, (_,i) => { const t = i/n*2*Math.PI, c = Math.cos(t)*rr, s2 = Math.sin(t)*rr;
+    return [p[0] + u[0]*c + v[0]*s2, p[1] + u[1]*c + v[1]*s2, p[2] + u[2]*c + v[2]*s2]; });
+  const A = ring(a, r), B = ring(b, r1), capB = vis(d), cap = capB ? B : A, cn = capB ? d : d.map(x => -x);
+  return loft(A, B, nr => shade(nr, m)) + (Math.max(r, r1) > 0 ? fill(pd(cap), shade(cn, m)) + ink(pd(cap), w*.8) : '') + hullInk([...A, ...B], w);
+}
+// Text lying flat on a front plane x = const, centred at (y,z) baseline; reads left-to-right on screen.
+// text sits on a face: if its reading direction comes out mirrored (or edge-on), that face is turned away, so the text is hidden
+const txM = (o, U, V) => (U[0]*V[1] - U[1]*V[0]) <= .02 * Math.hypot(...U) * Math.hypot(...V) ? `matrix(0 0 0 0 ${f(o[0])} ${f(o[1])})` : `matrix(${U[0].toFixed(4)} ${U[1].toFixed(4)} ${V[0].toFixed(4)} ${V[1].toFixed(4)} ${f(o[0])} ${f(o[1])})`;
+const tx = (x,y,z,str,size,col=INK,weight=700) => { const o=P(x,y,z);
+  return `<text transform="${txM(o, Dv(0,-1,0), Dv(0,0,-1))}" font-size="${size}" fill="${col}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="${weight}" letter-spacing=".04em">${str}</text>`; };
+// Text on a side plane y = const, centred at (x,z).
+const txY = (x,y,z,str,size,col=INK,weight=700) => { const o=P(x,y,z);
+  return `<text transform="${txM(o, Dv(1,0,0), Dv(0,0,-1))}" font-size="${size}" fill="${col}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="${weight}" letter-spacing=".04em">${str}</text>`; };
+// Cast shadow of a set of 3D points (any outline of the object), pushed along the light onto z = 0.
+// the light stays put relative to the viewer, so the shadow is cast in turned coordinates
+// z0: the surface it falls on (a board, a counter); clip it to that surface with clipTo(...) if it could spill off.
+// clip: the 3D outline of the surface it falls on (e.g. boardTop(...)), so it can't spill over the edge.
+const castShadow = (pts3, z0=0, clip=null) => { const k = SHADOW_LEN / SHADOW_K, [sx, sy] = yawTurn(SH);
+  const s = fill(sp(hull(pts3.map(([x,y,z]) => P(x+(z-z0)*sx*k, y+(z-z0)*sy*k, z0)))), SHADOW);
+  return clip ? clipTo(clip, s) : s; };
+// A board for the object to stand on (a tray, a desk top, a counter): a rounded slab from (x0,y0) to (x1,y1), h thick.
+// Draw it first; then castShadow(points, h, boardTop(x0,y0,x1,y1,h,r)) so shadows lie on it and stop at its edge.
+const BOARD = { l:'#e6e1d4', m:'#cfc8b8', d:'#aaa293' }, WOOD = { l:'#d9a86c', m:'#bf8a4f', d:'#8e6236' };
+const boardTop = (x0,y0,x1,y1,h=3,r=5) => on(PZ(h), rrUV(x0,y0,x1,y1,r));
+function board(x0,y0,x1,y1,h=3,r=5,m=BOARD){
+  const A = on(PZ(0), rrUV(x0,y0,x1,y1,r)), B = boardTop(x0,y0,x1,y1,h,r);
+  return loft(A, B, n => toneI(n, m)) + fill(pd(B), m.l) + ink(pd(B), 1) + hullInk([...A, ...B], 1.8);
+}
+// Group helpers: clickable target, clip to an opening.
+const act  = (name, inner, data='') => `<g data-act="${name}" ${data}>${inner}</g>`;
+let _clipN = 0;
+// Part label (for "how does it work" figures): a cream pill with a leader line to a 3D point on the part.
+// dx, dy = where the pill sits, in screen units at the reference zoom (they scale with the figure like stroke widths).
+// on = that part is working right now (the pill turns the accent colour). Labels can be hidden with the Labels switch.
+function tag(p3, dx, dy, text, on=false){
+  // on a phone (LBL_U = drawing units per screen px) the pill is a numbered badge and the names go in a legend under the figure
+  const u = window.LBL_U ? LBL_U() : 0, n = ((window.__ln || (window.__ln = {}))[text] || (__ln[text] = Object.keys(__ln).length + 1));
+  const k = INK_K, [X,Y] = P(...p3), fs = u ? 10*u : 8.6*k, h = u ? 17*u : fs*1.8, w = u ? h*(n > 9 ? 1.3 : 1) : text.length*fs*.62 + fs*1.5, cx = X + dx*k, cy = Y + dy*k;
+  return `<g class="tag${on ? ' on' : ''}" data-n="${n}" data-t="${text}"><path d="M${f(X)} ${f(Y)}L${f(cx)} ${f(cy)}" fill="none" stroke="${INK}" stroke-width="1"/>`
+    + `<circle cx="${f(X)}" cy="${f(Y)}" r="${f(1.3*k)}" fill="${INK}"/>`
+    + `<rect x="${f(cx-w/2)}" y="${f(cy-h/2)}" width="${f(w)}" height="${f(h)}" rx="${f(h/2)}" fill="${on ? 'var(--accent,#f4b829)' : '#fff4d6'}" stroke="${INK}" stroke-width="1.2"/>`
+    + `<text x="${f(cx)}" y="${f(cy+fs*.36)}" font-size="${f(fs)}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800" letter-spacing=".04em" fill="${INK}">${u ? n : text}</text></g>`;
+}
+const clipTo = (pts3, inner) => { const id = 'k' + (++_clipN); return `<clipPath id="${id}"><path d="${pd(pts3)}"/></clipPath><g clip-path="url(#${id})">${inner}</g>`; };
+
+/* ---------- constant on-screen line weight ----------
+   Stroke widths are written in model units, and each figure is zoomed to fill the frame, so a small
+   object would get fat lines. INK_K rescales every stroke-width (and the wobble/grain filter) so all
+   figures match the reference zoom of the booth / vending machine (viewBox ≈ 585 units wide). */
+const INK_REF_VB = 585;
+let INK_K = 1;
+const inkScale = svg => INK_K === 1 ? svg : svg.replace(/stroke-width="([\d.]+)"/g, (_, w) => `stroke-width="${(+w * INK_K).toFixed(2)}"`);
+
+/* ---------- page shell ---------- */
+const CORE_CSS = `
+  :root{--paper:#f2efe7;--ink:#231e16;--muted:#857d6e;--rule:#ddd6c8}
+  *{box-sizing:border-box} html,body{margin:0;height:100%}
+  body{background-color:var(--paper);
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .42  0 0 0 0 .39  0 0 0 0 .33  .16 0 0 0 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+    overflow-x:hidden;color:var(--ink);font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;flex-direction:column;align-items:center;padding:24px 16px 32px}
+  header{width:100%;max-width:760px;display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+  header h1{font-size:13px;font-weight:600;margin:0;letter-spacing:.02em} header span{color:var(--muted)}
+  #fig{width:100%;max-width:760px;height:auto;display:block;margin:4px 0 8px;user-select:none;overflow:visible}
+  #fig{cursor:grab;touch-action:pan-y} #fig.drag{cursor:grabbing} #fig [data-act]{cursor:pointer}
+  #readout, .idea{display:none}   /* status line + big idea are off: the buttons and motion tell the story */
+  .idea{width:100%;max-width:760px;margin:-6px 0 16px;font-size:12.5px;line-height:1.5;text-align:center;color:var(--ink)}
+  .idea strong{letter-spacing:.12em;text-transform:uppercase;font-size:11px;margin-right:8px}
+  #readout{position:relative;min-height:1.4em;letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px;text-align:center;text-shadow:0 0 3px var(--paper),0 0 6px var(--paper),0 0 10px var(--paper)}
+  .stage{position:relative;width:100%;max-width:760px}
+  .actions{position:absolute;top:4px;left:0;display:flex;flex-direction:column;align-items:flex-start;gap:8px;z-index:2;max-width:220px}
+  .actions .cap{color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 2px}
+  html.nolabels #fig .tag{display:none}
+  .ctl[hidden]{display:none}
+  /* ui.flash(text): a short note under the buttons ("the can is empty — refill it"); the status line itself stays hidden */
+  .toast{position:absolute;left:0;z-index:3;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;background:var(--paper);
+    border:1.5px solid var(--ink);border-radius:8px;padding:4px 9px;box-shadow:2px 2px 0 var(--ink);opacity:0;transition:opacity .2s;pointer-events:none;max-width:240px}
+  .toast.show{opacity:1}
+  .made-with{width:100%;max-width:760px;margin-top:18px;text-align:right;font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+  .made-with a{color:var(--muted);text-decoration:none} .made-with a:hover{color:var(--ink)}
+  .stats{position:absolute;top:4px;right:0;display:flex;flex-direction:column;align-items:flex-end;gap:10px;z-index:2;text-align:right}
+  .stat .k{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .stat .v{font-size:34px;font-weight:800;line-height:1.05;letter-spacing:-.01em;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .stat.small .v{font-size:20px}
+  .stat .v.bump{animation:bump .35s ease-out}
+  @keyframes bump{0%{transform:scale(1.18)}100%{transform:none}}
+  .stepwrap{position:relative;display:flex;align-items:center;gap:8px}
+  .act{font:inherit;color:var(--ink);background:var(--paper);border:1.5px solid var(--ink);border-radius:999px;padding:5px 14px;cursor:pointer;white-space:nowrap}
+  .act:hover{background:color-mix(in srgb,var(--paper) 92%,var(--ink))}
+  .act .car{margin-left:6px;font-size:10px}
+  .act:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+  .chips{display:none;flex-wrap:wrap;gap:6px;background:var(--paper);border:2px solid var(--ink);border-radius:12px;box-shadow:3px 3px 0 var(--ink);
+    padding:8px;width:max-content;max-width:min(300px,62vw);position:absolute;left:calc(100% + 10px);top:-4px;z-index:3}
+  .stepwrap.open .chips{display:flex}
+  .chip{white-space:nowrap;font:inherit;font-size:11.5px;font-weight:700;color:var(--ink);background:var(--paper);border:1.5px solid var(--ink);border-radius:8px;padding:4px 8px;cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
+  .chip:hover{background:var(--accent,#f4b829);transform:translate(-1px,-1px)}
+  .chip.current{background:var(--ink);color:var(--paper)} .chip.current:hover{background:var(--ink);transform:none}
+  .chip.off{opacity:.45} .chip.off:hover{transform:none;background:var(--paper)}
+  
+  @media (max-width:560px){body{padding:14px 12px 24px}header span,.actions .cap{display:none}.actions{flex-direction:row;flex-wrap:wrap;gap:6px}.act{font-size:12px;padding:4px 11px}.stats{position:static;flex-direction:row;justify-content:flex-end;gap:18px;margin-bottom:4px}.actions{position:static;max-width:none;margin:6px 0 4px}.chips{left:0;top:calc(100% + 8px)}}
+  .controls{width:100%;max-width:760px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px 28px;border-top:1px solid var(--rule);padding-top:16px}
+  .ctl{display:flex;flex-direction:column;gap:6px}
+  .ctl label{color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  input[type=range]{width:100%;accent-color:var(--ink)}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  button{font:inherit;color:var(--ink);background:transparent;border:1.5px solid var(--ink);border-radius:999px;padding:5px 14px;cursor:pointer}
+  button:hover{background:#0000000d}
+  button[aria-pressed=true]:not(.sw){background:var(--ink);color:var(--paper)}
+  .sw{width:26px;height:26px;padding:0;border-radius:50%} .sw[aria-pressed=true]{outline:2px solid var(--ink);outline-offset:2px}`;
+
+const filterFor = k => `<filter id="hand" x="-3%" y="-3%" width="106%" height="106%" color-interpolation-filters="sRGB">
+  <feTurbulence type="fractalNoise" baseFrequency="${(0.045/k).toFixed(4)}" numOctaves="2" seed="4" result="warp"/>
+  <feDisplacementMap id="wob" in="SourceGraphic" in2="warp" scale="${(2.4*k).toFixed(2)}" xChannelSelector="R" yChannelSelector="G" result="wob"/>
+  <feTurbulence type="fractalNoise" baseFrequency="${(0.9/k).toFixed(4)}" numOctaves="3" seed="11" result="n1"/>
+  <feColorMatrix in="n1" type="matrix" values=".3 0 0 0 .84  .3 0 0 0 .84  .3 0 0 0 .84  0 0 0 0 1" result="grain"/>
+  <feTurbulence type="fractalNoise" baseFrequency="${(0.012/k).toFixed(4)}" numOctaves="2" seed="7" result="n2"/>
+  <feColorMatrix in="n2" type="matrix" values=".3 0 0 0 .85  .3 0 0 0 .85  .3 0 0 0 .85  0 0 0 0 1" result="blot"/>
+  <feBlend in="wob" in2="grain" mode="multiply" result="g1"/><feBlend in="g1" in2="blot" mode="multiply" result="g2"/>
+  <feComposite in="g2" in2="wob" operator="in"/></filter>`;
+
+/* mountFigure({
+     fig:'03', title:'Photo booth', hint:'click the curtain…',
+     size:[W,D,H],                 // bounding box, used to frame the view (shadow range included)
+     palette:'mustard',            // default PALS key
+     state:{...},                  // figure state (st.pal is built in)
+     scene: (st, m) => svgString,  // m = current palette {l,m,d}
+     readout: st => 'text',        // status line under the figure
+     buttons: [{label, onClick(st, ui)}      // listed in the order the user should do them
+               | {label, choices: st => [{label, onClick(st,ui), current?, disabled?, why?}]}],   // opens a picker
+     stats: st => [{label, value, small?}],   // optional: big numbers top-right (credit, change, score)
+     credit: false,                // optional: hide the small "Made with Colorfigures" link
+     acts: { name(st, el, ui){} },  // clicks on act(name, …) groups; el has dataset
+     params(st, q){}               // optional: read URLSearchParams for screenshot states
+   })  -> ui = { st, render, animate(stepFn), flash(text,ms) }
+   animate(step): calls step(dt seconds) every frame and re-renders until step returns false. */
+addEventListener('error', e => { document.documentElement.dataset.errors = (document.documentElement.dataset.errors || '') + ' ' + e.message + ';'; });
+/* The hand-drawn filter's noise never changes, but browsers recompute every feTurbulence each time the drawing changes
+   (on phones SVG filters run on the CPU, so this is most of the cost of a frame). bakeNoise renders each noise layer once
+   into an image and swaps it in: coarse layers as one small image over the whole view (they are smooth, so scaling up
+   is invisible), fine grain as a seamless tile. If anything fails (an old browser), the live filter simply stays. */
+function bakeNoise(svg){
+  const fl = document.getElementById('hand'); if (!fl || typeof Image === 'undefined') return;
+  const NS = 'http://www.w3.org/2000/svg', vb = svg.viewBox.baseVal;
+  const x0 = vb.x - vb.width*.35, y0 = vb.y - vb.height*.35, w0 = vb.width*1.7, h0 = vb.height*1.7;
+  for (const t of [...fl.querySelectorAll('feTurbulence')]){
+    const fq = parseFloat(t.getAttribute('baseFrequency')), oct = +(t.getAttribute('numOctaves') || 1);
+    if (!(fq > 0)) continue;
+    const fine = fq * Math.max(w0, h0) > 80;
+    if (fine) continue;   // fine grain stays live: a repeated tile leaves faint seams on some GPUs
+    const rx = fine ? 0 : x0, ry = fine ? 0 : y0, rw = fine ? 48 / fq : w0, rh = fine ? 48 / fq : h0;
+    const ppu = fq * (fine ? 7 : 5) * Math.pow(2, Math.max(0, oct - 1) * .5), PW = Math.ceil(rw * ppu), PH = Math.ceil(rh * ppu);
+    if (PW * PH > 1200 * 1200) continue;
+    const tb = t.cloneNode(); tb.removeAttribute('result'); if (fine) tb.setAttribute('stitchTiles', 'stitch');
+    const src = `<svg xmlns="${NS}" width="${PW}" height="${PH}" viewBox="${rx} ${ry} ${rw} ${rh}"><filter id="n" filterUnits="userSpaceOnUse" x="${rx}" y="${ry}" width="${rw}" height="${rh}" color-interpolation-filters="sRGB">${tb.outerHTML}</filter><rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" filter="url(#n)"/></svg>`;
+    const img = new Image();
+    img.onload = () => { try {
+      const c = document.createElement('canvas'); c.width = PW; c.height = PH; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      // store the noise's colour values fully opaque: the filter reads its colour channels, and an image with
+      // see-through pixels would be read premultiplied (darker) by some browsers
+      const px = g.getImageData(0, 0, PW, PH); for (let i = 3; i < px.data.length; i += 4) px.data[i] = 255; g.putImageData(px, 0, 0);
+      const url = c.toDataURL('image/png'), res = t.getAttribute('result');
+      const im = document.createElementNS(NS, 'feImage');
+      // a tile must sit inside the filter's region (the drawing's box) or it gets clipped: anchor it at the drawing's
+      // centre, snapped to whole tiles so the grain keeps the same phase as the live noise would
+      let ox = rx, oy = ry;
+      if (fine){ const bb = svg.getElementById ? document.getElementById('art').getBBox() : { x: 0, y: 0, width: 0, height: 0 };
+        ox = Math.floor((bb.x + bb.width/2) / rw) * rw; oy = Math.floor((bb.y + bb.height/2) / rh) * rh; }
+      for (const [k, v] of [['x', ox], ['y', oy], ['width', rw], ['height', rh], ['preserveAspectRatio', 'none']]) im.setAttribute(k, v);
+      im.setAttribute('href', url); im.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', url);
+      if (!t.isConnected) return;
+      if (fine){ im.setAttribute('result', res + '_tile'); const tl = document.createElementNS(NS, 'feTile'); tl.setAttribute('in', res + '_tile'); tl.setAttribute('result', res); t.replaceWith(im, tl); }
+      else { im.setAttribute('result', res); t.replaceWith(im); }
+    } catch (e) {} };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(src);
+  }
+}
+function mountFigure(cfg){
+  document.title = cfg.title;
+  const style = document.createElement('style'); style.textContent = CORE_CSS; document.head.appendChild(style);
+  document.body.innerHTML = `
+    <header><h1>Gambar ${cfg.fig} — ${cfg.title}</h1></header>
+    <div class="stage">
+      ${cfg.buttons && cfg.buttons.length ? `<div class="actions" id="btns"></div>` : ''}
+      ${cfg.stats ? '<div class="stats" id="stats"></div>' : ''}
+      <div class="toast" id="toast" role="status"></div>
+      <svg id="fig" role="img" aria-label="${cfg.title}"><defs id="fdefs"></defs><g id="art" filter="url(#hand)"></g></svg>
+    </div>
+    <div id="readout"></div>
+    ${cfg.idea ? `<p class="idea"><strong>Ide pokok</strong>${cfg.idea}</p>` : ''}
+    <div class="controls">
+      <div class="ctl"><label for="wb">Goyang garis</label><input id="wb" type="range" min="0" max="7" step="0.1" value="2.4"></div>
+      <div class="ctl"><label>Warna</label><div class="row" id="pals"></div></div>
+      <div class="ctl"><label>Tampilan</label><div class="row"><button id="vreset">Depan</button><button id="vspin" aria-pressed="false">Putar otomatis</button></div></div>
+      <div class="ctl" id="lblctl" hidden><label>Label</label><div class="row"><button id="lbl" aria-pressed="true">Nyala</button></div></div>
+    </div>
+    ${cfg.credit === false ? '' : '<footer class="made-with"><a href="https://april-zhu.com/colorfigures" target="_blank" rel="noopener">Made with Colorfigures ↗</a></footer>'}`;
+  const st = cfg.state || {};            // kept as the same object, so a figure may hold on to it
+  if (!st.pal) st.pal = cfg.palette || 'mustard';
+  if (st.az == null) st.az = 105;
+  const q = new URLSearchParams(location.search);
+  // a figure turns all the way round only once it has been checked from every side (turn:'full'); otherwise it turns
+  // +-60 deg around the front, where it was drawn. ?free=1 unlocks it for testing.
+  CAM_LIM = cfg.turn === 'full' || q.get('free') === '1' ? null : 60;
+  if (PALS[q.get('pal')]) st.pal = q.get('pal');
+  if (cfg.params) cfg.params(st, q);
+
+  // frame on the object itself: centred, filling ~60% of the width / ~78% of the height of a 4:3 view.
+  // The cast shadow is allowed to spill outside the frame (svg overflow is visible).
+  const [W,D,H] = cfg.size, pts = [];
+  OX = OY = 0; RC = cfg.center || [W/2, D/2]; RCZ = H/2;
+  VIEW = 0; setCam(YAW0, PITCH0);
+  for (const x of [0,W]) for (const y of [0,D]) for (const z of [0,H]) pts.push(P(x,y,z));
+  const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+  const bw = Math.max(...xs)-Math.min(...xs), bh = Math.max(...ys)-Math.min(...ys);
+  // the object fills ~74% of the width / ~88% of the height, nudged right of centre so the buttons (top left) stay clear
+  // on a phone (FIG_A, from the gallery) the frame grows taller than 4:3, as far as the object needs, so tall machines fill it;
+  // the spare height goes mostly below; the object stays centred (its shadow may run off the edge, by the owner's call)
+  const PA = window.FIG_A ? FIG_A() : .75, A = PA === .75 ? .75 : Math.min(PA, Math.max(.75, bh/.88/(bw/.74)*1.08)), vbW = Math.max(bw/.74, bh/.88/A), vbH = vbW*A;
+  OX = (vbW-bw)/2 + (PA === .75 ? vbW*.06 : 0) - Math.min(...xs); OY = (PA === .75 ? vbH*.04 : (vbH - bh)*.3) - Math.min(...ys);   // sit a little high: shadows fall downward
+  const svg = document.getElementById('fig');
+  svg.setAttribute('viewBox', `0 0 ${f(vbW)} ${f(vbH)}`);
+  INK_K = vbW / INK_REF_VB;
+  document.getElementById('fdefs').innerHTML = filterFor(INK_K);
+  bakeNoise(svg);
+
+  const art = document.getElementById('art'), readout = document.getElementById('readout');
+  const ui = { st };
+  ui.render = () => { _clipN = 0; document.documentElement.style.setProperty('--accent', PALS[st.pal].l); art.innerHTML = inkScale(cfg.scene(st, PALS[st.pal])); if (!ui._flash) readout.textContent = cfg.readout ? cfg.readout(st) : ''; if (ui.drawStats) ui.drawStats(); };
+  // big numbers in the top-right corner (credit, change, score…); a value that changes gets a little bump
+  const statsEl = document.getElementById('stats'), prevStats = {};
+  ui.drawStats = () => { if (!statsEl) return;
+    const list = cfg.stats(st).filter(Boolean), html = list.map(x => `<div class="stat${x.small ? ' small' : ''}"><div class="k">${x.label}</div><div class="v" data-k="${x.label}">${x.value}</div></div>`).join('');
+    if (statsEl._html !== html){ statsEl._html = html; statsEl.innerHTML = html;
+      statsEl.querySelectorAll('.v').forEach(v => { if (prevStats[v.dataset.k] != null && prevStats[v.dataset.k] !== v.textContent) v.classList.add('bump'); prevStats[v.dataset.k] = v.textContent; }); } };
+  let flashT = 0;
+  const toast = document.getElementById('toast');
+  ui.flash = (text, ms=1600) => { ui._flash = true; readout.textContent = text; toast.textContent = text;
+    toast.style.top = ((document.getElementById('btns') ? document.getElementById('btns').offsetTop + document.getElementById('btns').offsetHeight : 0) + 8) + 'px'; toast.classList.add('show');
+    clearTimeout(flashT); flashT = setTimeout(() => { ui._flash = false; toast.classList.remove('show'); ui.render(); }, ms); };
+  // One frame driver for every running animation: each frame runs all the steps, then draws once (two animations at
+  // the same time no longer draw twice). It follows the screen's frames, with a timer fallback for when frames don't
+  // come (headless shots, a hidden tab). ui.invalidate() asks for one redraw on the next frame (used while dragging).
+  const steps = new Set(); let driving = false, lastT = 0, fbT = 0;
+  const frame = () => { if (!driving) return; driving = false; clearTimeout(fbT);
+    const now = performance.now(), dt = Math.max(0, Math.min(.05, (now - lastT) / 1000)); lastT = now;
+    for (const s of [...steps]) if (s(dt) === false) steps.delete(s);
+    ui.render(); if (steps.size) drive(); };
+  const drive = () => { if (driving) return; driving = true; requestAnimationFrame(frame); fbT = setTimeout(frame, 60); };
+  ui.animate = step => { if (!steps.size && !driving) lastT = performance.now(); steps.add(step); drive(); };
+  ui.invalidate = () => drive();
+
+  // clickable parts react on press, not on click: while something animates, the scene is redrawn every frame, so the
+  // element under the pointer is replaced between press and release and a 'click' would never fire
+  svg.addEventListener('pointerdown', e => { if (e.button) return; const a = e.target.closest('[data-act]'); if (!a || !cfg.acts || !cfg.acts[a.dataset.act]) return;
+    e.preventDefault(); cfg.acts[a.dataset.act](st, a, ui); ui.render(); });
+  // orbit: drag anywhere that is not a clickable part (the machine turns the way the finger moves); arrow keys nudge; double-click eases back to the front view
+  let drag = null, spin = false, camAnim = 0;
+  const camTo = (y, p, ms=700) => { const y0 = YAW, p0 = PITCH, dy = ((y - y0 + 540) % 360) - 180, id = ++camAnim; let t = 0;
+    ui.animate(dt => { if (id !== camAnim) return false; t += dt*1000; const k = Math.min(1, t / ms), e = ease(k); setCam(y0 + dy*e, p0 + (p - p0)*e); return k < 1; }); };
+  ui.camTo = camTo;
+  svg.addEventListener('pointerdown', e => { if (e.button || e.target.closest('[data-act]')) return;
+    camAnim++; drag = { x:e.clientX, y:e.clientY, yaw:YAW, pitch:PITCH }; svg.classList.add("drag"); try { svg.setPointerCapture(e.pointerId); } catch {} });
+  svg.addEventListener('pointermove', e => { if (!drag) return; const k = 300 / svg.getBoundingClientRect().width;
+    setCam(drag.yaw + (e.clientX - drag.x)*.55*k, drag.pitch + (e.clientY - drag.y)*.35*k); ui.invalidate(); });
+  const endDrag = () => { drag = null; svg.classList.remove('drag'); };
+  svg.addEventListener('pointerup', endDrag); svg.addEventListener('pointercancel', endDrag);
+  svg.addEventListener('dblclick', e => { if (!e.target.closest('[data-act]')) camTo(YAW0, PITCH0); });
+  addEventListener('keydown', e => { const k = { ArrowLeft:[-15,0], ArrowRight:[15,0], ArrowUp:[0,8], ArrowDown:[0,-8] }[e.key];
+    if (!k || window.GAME_KEYS || /input|textarea/i.test(e.target.tagName)) return; e.preventDefault(); camTo(YAW + k[0], PITCH + k[1], 260); });   // a game figure keeps the arrows for play
+  document.getElementById('vreset').onclick = () => { spin = false; vsp.setAttribute('aria-pressed', false); camTo(YAW0, PITCH0); };
+  const vsp = document.getElementById('vspin');
+  vsp.onclick = () => { spin = !spin; vsp.setAttribute('aria-pressed', spin); camAnim++;
+    let dir = 1;   // with a turning limit, the turntable swings back and forth inside it
+    if (spin) ui.animate(dt => { if (!spin) return false; if (!drag){ let y = YAW + dir*dt*18;
+      if (CAM_LIM != null && Math.abs(y - YAW0) >= CAM_LIM - .5){ dir = -dir; y = YAW + dir*dt*18; } setCam(y, PITCH); } return true; }); };
+  if (q.has('yaw') || q.has('pitch')) setCam(+(q.get('yaw') ?? YAW0), +(q.get('pitch') ?? PITCH0));
+  const btns = document.getElementById('btns');
+  const stepEls = [];
+  if (btns) cfg.buttons.forEach((b, i) => {
+    const wrap = document.createElement('div'); wrap.className = 'stepwrap';
+    const el = document.createElement('button'); el.className = 'act';
+    el.innerHTML = `${b.label}${b.choices ? '<span class="car">▾</span>' : ''}`;
+    wrap.appendChild(el); btns.appendChild(wrap); stepEls.push(el);
+    if (!b.choices){ el.onclick = () => { closeChips(); b.onClick(st, ui); ui.render(); }; return; }
+    const chips = document.createElement('div'); chips.className = 'chips'; wrap.appendChild(chips);
+    el.onclick = e => { e.stopPropagation(); const open = !wrap.classList.contains('open'); closeChips();
+      if (!open) return;
+      chips.innerHTML = '';
+      // every choice stays clickable, so nothing silently ignores a press:
+      //   current:true  = the one in use (shown selected); a press just says so
+      //   disabled:true = not possible right now (shown faded); a press says why (c.why, or a generic note)
+      for (const c of b.choices(st)){ const ch = document.createElement('button'); ch.className = 'chip' + (c.current ? ' current' : c.disabled ? ' off' : ''); ch.textContent = c.label;
+        if (c.current) ch.setAttribute('aria-pressed', 'true');
+        ch.onclick = ev => { ev.stopPropagation(); closeChips();
+          if (c.current) return ui.flash(`${c.label} — already set`);
+          if (c.disabled) return ui.flash(c.why || `${c.label} isn't possible right now`);
+          c.onClick(st, ui); ui.render(); }; chips.appendChild(ch); }
+      wrap.classList.add('open'); };
+  });
+  function closeChips(){ document.querySelectorAll('.stepwrap.open').forEach(w => w.classList.remove('open')); }
+  document.addEventListener('click', closeChips);
+
+  document.getElementById('wb').oninput = e => document.getElementById('wob').setAttribute('scale', (e.target.value * INK_K).toFixed(2));
+  const pals = document.getElementById('pals');
+  for (const [k,p] of Object.entries(PALS)){
+    const b = document.createElement('button'); b.className='sw'; b.title=k; b.style.background=p.l; b.setAttribute('aria-pressed', k===st.pal);
+    b.onclick = () => { st.pal=k; [...pals.children].forEach(c=>c.setAttribute('aria-pressed', c===b)); ui.render(); };
+    pals.appendChild(b);
+  }
+  // labels: the switch appears when the figure draws any tag(); ?labels=0 starts with them hidden
+  const lblctl = document.getElementById('lblctl'), lbl = document.getElementById('lbl');
+  const setLabels = on => { document.documentElement.classList.toggle('nolabels', !on); lbl.textContent = on ? 'Nyala' : 'Mati'; lbl.setAttribute('aria-pressed', on); };
+  lbl.onclick = () => setLabels(document.documentElement.classList.contains('nolabels'));
+  if (q.get('labels') === '0') setLabels(false);
+  // testing: ?press=Label@ms,Label@ms clicks the buttons whose text starts with Label at those times after load
+  // (any order, repeats allowed); Label>Choice picks a choice from a picker button (?press=Speed>3@300).
+  // Script errors and unknown labels are recorded on <html data-errors="…">
+  window.__st = st;
+  const noteErr = m => { document.documentElement.dataset.errors = (document.documentElement.dataset.errors || '') + ' ' + m + ';'; };
+  const starts = (el, t) => el.textContent.trim().toLowerCase().startsWith(t.trim().toLowerCase());
+  if (q.has('press')) q.get('press').split(',').forEach(item => { const [what, ms] = item.split('@'), [label, choice] = what.split('>');
+    setTimeout(() => { const b = [...document.querySelectorAll('.act')].find(b => starts(b, label));
+      if (!b) return noteErr(`no button "${label}"`);
+      b.click(); if (choice == null) return;
+      const c = [...b.parentElement.querySelectorAll('.chip')].find(c => starts(c, choice));
+      if (c && !c.disabled) c.click(); else noteErr(`no choice "${choice}" in "${label}"`); }, +ms || 0); });
+  setLight(st.az); ui.render();
+  if (art.querySelector('.tag')) lblctl.hidden = false;
+  return ui;
+}
+
+/* ---------- see-through + labels kit (shared; the figure supplies its own working parts) ----------
+   xrCallouts(items, B): pills in two columns either side of the object, sorted top to bottom so leaders never cross.
+     items: [{ at:[x,y,z], text, on }], B: the object's bounds [x0, x1, y0, y1, z0, z1].
+   xrGhost(body, mech, k, OUTp, x0, x1, m): far walls faintly, the working parts, then the case as a ghost over them.
+   xrMount(getUI, caption): the See-through / Labels switches (top right), the caption under the figure, label hiding. */
+function xrCallouts(items, B){
+  const pts = []; for (const x of [B[0], B[1]]) for (const y of [B[2], B[3]]) for (const z of [B[4], B[5]]) pts.push(P(x, y, z));
+  const xmin = Math.min(...pts.map(p => p[0])), xmax = Math.max(...pts.map(p => p[0])), cx = (xmin + xmax)/2;
+  // on a phone (LBL_U = drawing units per screen px) each label is a numbered badge and the names go in a legend under the figure
+  const k = INK_K, u = window.LBL_U ? LBL_U() : 0, fs = u ? 10*u : 8.6*k, hgt = u ? 17*u : fs*1.8, gap = hgt + (u ? 3*u : 3*k);
+  const L = [], R = [];
+  const svgEl = document.getElementById('fig'), vb = svgEl.viewBox.baseVal, btn = document.getElementById('btns');
+  const wMax = u ? hgt*1.3 + 12*k : Math.max(...items.map(it => it.text.length))*fs*.62 + fs*1.5 + 12*k;
+  const roomL = xmin - vb.x >= wMax, roomR = vb.x + vb.width - xmax >= wMax;
+  for (const it of items){ const [X, Y] = P(...it.at); ((X < cx && roomL) || !roomR ? L : R).push({ ...it, X, Y }); }
+  let s = '';
+  let top = { [-1]: fs, [1]: fs + 30*k };
+  if (btn && svgEl.getScreenCTM()){ const r = btn.getBoundingClientRect(), q = new DOMPoint(r.right, r.bottom + 50).matrixTransform(svgEl.getScreenCTM().inverse());
+    if (q.y > 0) top[-1] = q.y + hgt; }
+  for (const [col, side] of [[L, -1], [R, 1]]){
+    col.sort((a, b) => a.Y - b.Y);
+    let y = -1e9; for (const c of col){ c.py = Math.max(c.Y, y + gap, top[side]); y = c.py; }
+    const shift = col.length ? Math.max(0, col.reduce((a, c) => a + c.py - c.Y, 0) / col.length) : 0;
+    const room = col.length ? col[0].py - top[side] : 0; for (const c of col) c.py -= Math.min(shift, room);
+    for (const c of col){
+      c.n = ((window.__ln || (window.__ln = {}))[c.text] || (__ln[c.text] = Object.keys(__ln).length + 1)); const w = u ? hgt*(c.n > 9 ? 1.3 : 1) : c.text.length*fs*.62 + fs*1.5;
+      let px = side < 0 ? xmin - 10*k - w/2 : xmax + 10*k + w/2; px = Math.max(vb.x + w/2 + 2*k, Math.min(vb.x + vb.width - w/2 - 2*k, px));
+      const ex = px - side*w/2;
+      s += `<g class="tag${c.on ? ' on' : ''}" data-n="${c.n}" data-t="${c.text}"><path d="M${f(c.X)} ${f(c.Y)}L${f(ex + side*-4*k)} ${f(c.py)}L${f(ex)} ${f(c.py)}" fill="none" stroke="${INK}" stroke-width="1"/>`
+        + `<circle cx="${f(c.X)}" cy="${f(c.Y)}" r="${f(1.4*k)}" fill="${INK}"/>`
+        + `<rect x="${f(px - w/2)}" y="${f(c.py - hgt/2)}" width="${f(w)}" height="${f(hgt)}" rx="${f(hgt/2)}" fill="${c.on ? 'var(--accent,#f4b829)' : '#fff4d6'}" stroke="${INK}" stroke-width="1.2"/>`
+        + `<text x="${f(px)}" y="${f(c.py + fs*.36)}" font-size="${f(fs)}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800" letter-spacing=".04em" fill="${INK}">${u ? c.n : c.text}</text></g>`;
+    }
+  }
+  return s;
+}
+function xrGhost(body, mech, k, OUTp, x0, x1, m){
+  const fF = facing([1,0,0]), fB = facing([-1,0,0]);
+  const far = `<g opacity="${f(.5*k)}">` + loft(on(PX(x0), OUTp), on(PX(x1), OUTp), n => mix(toneI(n.map(v => -v), m), '#f2efe7', .55), true)
+    + (fF ? fill(pd(on(PX(x0), OUTp)), mix(m.d, '#f2efe7', .5)) : '') + (fB ? fill(pd(on(PX(x1), OUTp)), mix(m.d, '#f2efe7', .5)) : '') + `</g>`;
+  return far + mech + `<g opacity="${f(1 - .8*k)}">${body}</g>` + `<g opacity="${f(.6*k)}">` + hullInk([...on(PX(x0), OUTp), ...on(PX(x1), OUTp)], 2.8) + `</g>`;
+}
+function xrMount(getUI, caption, opt = {}){   // opt.labelsOnly: only the Labels switch (the insides are on show already)
+  const ui = getUI(), q = new URLSearchParams(location.search), html = document.documentElement;
+  if (q.get('labels') !== '1') html.classList.add('nolabels');
+  if (ui.st.xr == null){ ui.st.xr = 0; ui.st.xrT = 0; }
+  if (q.get('xr') === '1') ui.st.xr = ui.st.xrT = 1;
+  const old = document.getElementById('lblctl'); if (old) old.style.display = 'none';
+  const vset = document.createElement('div'); vset.className = 'vset';
+  vset.innerHTML = '<div class="vrow">' + (opt.labelsOnly ? '' : '<button class="act" id="xrb" aria-pressed="false">Tembus pandang</button>') + '<button class="act" id="lblb" aria-pressed="false">Label</button></div>';
+  document.querySelector('.stage').appendChild(vset);
+  // pages with a stats panel in the top right: the switches go just under it
+  const place = () => { const sp = document.getElementById('stats'); vset.style.top = sp ? (sp.offsetTop + sp.offsetHeight + 10) + 'px' : ''; };
+  place(); new ResizeObserver(place).observe(document.getElementById('stats') || vset);
+  const xrb = document.getElementById('xrb'), lblb = document.getElementById('lblb');
+  const sync = () => { if (xrb) xrb.setAttribute('aria-pressed', !!getUI().st.xrT); lblb.setAttribute('aria-pressed', !html.classList.contains('nolabels')); };
+  if (xrb) xrb.onclick = () => { const u = getUI(), st = u.st; st.xr = st.xr || 0; st.xrT = st.xrT ? 0 : 1; sync();
+    u.animate(dt => { const g = Math.sign(st.xrT - st.xr); st.xr = Math.min(1, Math.max(0, st.xr + g*dt/.7)); return st.xr !== st.xrT; }); };
+  lblb.onclick = () => { html.classList.toggle('nolabels'); sync(); };
+  sync();
+  const cap = document.createElement('p'); cap.className = 'mcap'; document.querySelector('.stage').after(cap);
+  const css = document.createElement('style');
+  css.textContent = '.vset{position:absolute;top:4px;right:0;z-index:2}.vrow{display:flex;gap:6px}.vset .act[aria-pressed=true]{background:var(--ink);color:var(--paper)}'
+    + 'html.nolabels #fig .tag{display:none}.mcap{width:100%;max-width:760px;min-height:3em;margin:0 0 14px;font-size:12.5px;line-height:1.5;text-align:center;transition:opacity .3s}'
+    + '@media (max-width:560px){.vset{position:static;margin:4px 0}}';
+  document.head.appendChild(css);
+  const r0 = ui.render; ui.render = () => { r0(); const st = getUI().st; cap.style.opacity = st.xr > .5 ? 1 : 0; cap.textContent = caption(st); };
+  ui.render();
+}
+// same, for a body lofted between two horizontal rings A (bottom) and B (top)
+function xrGhostRings(body, mech, k, A, B, m){
+  const far = `<g opacity="${f(.5*k)}">` + loft(A, B, n => mix(toneI(n.map(v => -v), m), '#f2efe7', .55), true) + fill(pd(A), mix(m.d, '#f2efe7', .5)) + `</g>`;
+  return far + mech + `<g opacity="${f(1 - .8*k)}">${body}</g>` + `<g opacity="${f(.6*k)}">` + hullInk([...A, ...B], 2.8) + `</g>`;
+}
+// generic see-through for any figure: the whole drawing fades back and the inside parts show over it.
+//   opts: { mech(st, k) -> svg, inside(st) -> label items, surface(st) -> label items (optional), B: bounds, getSt() }
+// washer-style ghost for an object without a single box case: its inside parts first, then the object pale over them
+const xrUnder = (svg, mech, k) => `<g opacity="${f(k)}">${mech}</g><g opacity="${f(1 - .62*k)}">${svg}</g>`;
+function xrWrap(sceneFn, opts){
+  return function(){
+    let s = sceneFn.apply(this, arguments);
+    const st = opts.getSt(), k = ease(st.xr || 0);
+    if (k > 0 && opts.under) s = xrUnder(s, opts.mech(st, k), k);   // the whole drawing is the object
+    else if (k > 0 && !opts.inline) s = `<g opacity="${f(1 - .5*k)}">${s}</g><g opacity="${f(k)}">${opts.mech(st, k)}</g>`;   // inline: the figure ghosts its own case
+    const items = k > .6 ? opts.inside(st) : opts.surface ? opts.surface(st) : [];
+    return s + (items.length ? xrCallouts(items, opts.B) : '');
+  };
+}
+
+/* ---------- game keypad: mountKeypad({ rows, hub:[col,row], action:'DROP', keys:[{ key:'ArrowLeft', glyph:'\u25c0', name, at:[col,row] }] })
+   An inked pad under the buttons that sends the same keyboard events as the arrows and space (set window.GAME_KEYS = true
+   so the arrows play instead of turning the camera). ---------- */
+function mountKeypad(spec){
+  const host = document.getElementById('btns'); if (!host) return;
+  const css = document.createElement('style');
+  css.textContent = `.kpad{display:flex;align-items:center;gap:16px;margin-top:6px;padding:10px 12px;border:1.5px solid var(--ink);border-radius:14px;
+      background:var(--paper);box-shadow:0 3px 0 var(--ink);touch-action:none;user-select:none;-webkit-user-select:none}
+    .kpad .dp{display:grid;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(var(--rows),34px);gap:3px}
+    .kpad .k{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:34px;height:34px;cursor:pointer;
+      background:#fbf7ea;border:1.5px solid var(--ink);border-radius:7px;box-shadow:0 3px 0 var(--ink);color:var(--ink);font:700 13px ui-monospace,Menlo,monospace;
+      transition:transform .05s,box-shadow .05s,background .05s}
+    .kpad .hub{width:34px;height:34px;display:flex;align-items:center;justify-content:center}
+    .kpad .hub i{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--ink);background:#e6e0d1}
+    .kpad .go{all:unset;box-sizing:border-box;width:62px;height:62px;border-radius:50%;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;
+      background:#e2483d;border:1.5px solid var(--ink);box-shadow:0 4px 0 var(--ink),inset 0 -5px 0 rgba(0,0,0,.18);color:#fff;font:800 12px ui-monospace,Menlo,monospace;letter-spacing:.06em;
+      transition:transform .05s,box-shadow .05s}
+    .kpad .go small{font:700 8px ui-monospace,Menlo,monospace;opacity:.85;letter-spacing:.08em;margin-top:2px}
+    .kpad .down{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+    .kpad .k.down{background:var(--accent,#f4b829)}
+    .kpad .go.down{transform:translateY(3px);box-shadow:0 1px 0 var(--ink),inset 0 -3px 0 rgba(0,0,0,.18)}
+    @media (max-width:560px){.kpad{gap:22px;padding:10px 16px}.kpad .dp{grid-template-columns:repeat(3,44px);grid-template-rows:repeat(var(--rows),44px)}
+      .kpad .k,.kpad .hub{width:44px;height:44px;font-size:15px}.kpad .go{width:74px;height:74px}}`;
+  document.head.appendChild(css);
+  const pad = document.createElement('div'); pad.className = 'kpad'; pad.setAttribute('role', 'group'); pad.setAttribute('aria-label', 'Keypad');
+  const dp = document.createElement('div'); dp.className = 'dp'; dp.style.setProperty('--rows', spec.rows);
+  const els = {};
+  for (const k of spec.keys){
+    const b = document.createElement('button'); b.className = 'k'; b.textContent = k.glyph; b.setAttribute('aria-label', k.name);
+    b.style.gridColumn = k.at[0] + 1; b.style.gridRow = k.at[1] + 1; dp.appendChild(b); els[k.key] = b; }
+  if (spec.hub){ const h = document.createElement('div'); h.className = 'hub'; h.innerHTML = '<i></i>'; h.style.gridColumn = spec.hub[0] + 1; h.style.gridRow = spec.hub[1] + 1; dp.appendChild(h); }
+  const go = document.createElement('button'); go.className = 'go'; go.innerHTML = `${spec.action}<small>SPACE</small>`; go.setAttribute('aria-label', spec.action);
+  els[' '] = go;
+  pad.append(dp, go); host.appendChild(pad);
+  const send = (type, key) => dispatchEvent(new KeyboardEvent(type, { key, bubbles: true }));
+  for (const [key, el] of Object.entries(els)){
+    let held = null;
+    el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (held != null) return; held = e.pointerId;
+      try { el.setPointerCapture(e.pointerId); } catch (_) {} send('keydown', key); });
+    const release = e => { if (held == null || (e && e.pointerId !== held)) return; held = null; send('keyup', key); };
+    el.addEventListener('pointerup', release); el.addEventListener('pointercancel', release); el.addEventListener('lostpointercapture', release);
+    el.addEventListener('click', e => e.preventDefault());
+    el.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); send('keydown', key); setTimeout(() => send('keyup', key), 120); } });
+  }
+  // space belongs to the game: a button that still has the focus from a click must not be pressed by it too
+  addEventListener('keydown', e => { if (e.key === ' ' && e.target && e.target.closest && e.target.closest('button')) e.preventDefault(); }, true);
+  addEventListener('keyup', e => { if (e.key === ' ' && e.target && e.target.closest && e.target.closest('button')) e.preventDefault(); }, true);
+  // light the keys for real key presses too (and for the pad's own, which arrive the same way)
+  addEventListener('keydown', e => { const el = els[e.key]; if (el) el.classList.add('down'); });
+  addEventListener('keyup', e => { const el = els[e.key]; if (el) el.classList.remove('down'); });
+  addEventListener('blur', () => Object.values(els).forEach(el => el.classList.remove('down')));
+}
+
+</script>
+<script>
+/* Gambar 4 — Mobil di lintasan (Bab 4 Gerak dan Gaya)
+   Percobaan nyata (urutan tombol):
+   1. Tarik pegas: mobil didorong mundur ke pelontar; batang pendorong ikut masuk, pegas tekan di dalam rumah pelontar
+      tertekan x = 3/5/7 cm, lalu pengait (pawl) jatuh ke takik pada batang dan menahannya.
+   2. Permukaan: lapisan atas lintasan diganti (kaca / kayu / karpet) -> koefisien gesek efektif berbeda.
+   3. Beban: balok baja 200 g dipasang di atas mobil (massa 0,20 -> 0,40 kg).
+   4. Lepaskan!: tuas pelepas memutar pengait ke atas, pegas mendorong batang + bantalan dorong, bantalan mendorong
+      mobil sampai pegas kembali ke panjang awal (titik 0 mistar). Sejak itu hanya gaya gesek yang bekerja: mobil melambat
+      dan berhenti; bila sampai 2,0 m, mobil menumbuk penahan karet, memantul pelan, lalu berhenti.
+   Model (angka di stats):
+     k = 50 N/m, m = 0,20 kg (+0,20 kg beban). Dorongan pegas: osilasi seperempat periode, c(t) = x cos(wt), w = sqrt(k/m),
+     kelajuan lepas v0 = x sqrt(k/m) (gesekan selama dorongan diabaikan).
+     Setelah lepas: perlambatan a = mu g, g = 9,8 m/s^2, mu kaca 0,03, kayu 0,06, karpet 0,15.
+     s(t) = v0 t - 1/2 a t^2 sampai v = 0 (t = v0/a). Di 2,0 m: tumbukan dengan koefisien restitusi 0,5, lalu melambat lagi.
+     Waktu & jarak diukur sejak bagian depan mobil melewati angka 0 mistar (saat lepas dari pegas).
+     Jarak = panjang lintasan yang ditempuh; kelajuan rata-rata = jarak / waktu.
+   Penyederhanaan gambar (diberi tahu lewat flash): mobil & pelontar digambar ~1,5x lebih besar; dorongan pegas
+     diputar 5x lebih lambat; panah gaya pegas digambar 7x lebih pendek dari skala panah gesek.
+   Daftar bagian:
+     MEJA     papan meja kayu
+     LINTASAN papan aluminium 2,9 m, dua bibir pemandu, lapisan permukaan (kaca/kayu/karpet), mistar 0-200 cm di meja
+     PELONTAR pelat dudukan, rumah pelontar, batang pendorong + 3 takik, kenop tarik, bantalan dorong, cincin penahan
+              (collar), pegas tekan, dua bus pemandu di dinding, pengait (pawl), pin poros pengait, pegas daun, tuas pelepas
+     MOBIL    bodi, pelat belakang & bemper depan (karet), lantai sasis, dua poros baja, empat bantalan roda + dudukannya,
+              empat roda, baut pemegang beban, balok beban 200 g
+     PENAHAN  rangka penahan, bantalan karet, dua sekrup
+     PROPS    stopwatch (menampilkan Waktu)  */
+
+/* ---------- model ---------- */
+const K_SPR = 50, M_CAR = .20, M_LOAD = .20, G_ACC = 9.8, E_BUMP = .5, SLOWMO = .2, TRACK_M = 2.0;
+const SURF = {
+  kaca:   { label:'Kaca',   mu:.03, col:'#cfe8ef', note:'Kaca licin: gaya gesek kecil, mobil meluncur jauh' },
+  kayu:   { label:'Kayu',   mu:.06, col:'#dcae72', note:'Kayu: gaya gesek sedang' },
+  karpet: { label:'Karpet', mu:.15, col:'#b84a3f', note:'Karpet kasar: gaya gesek besar, mobil cepat berhenti' },
+};
+const massOf = st => M_CAR + (st.load ? M_LOAD : 0);
+const accOf = st => SURF[st.surf].mu * G_ACC;
+const fmt = (v, d = 2) => (Math.abs(v) < .5 * Math.pow(10, -d) ? 0 : v).toFixed(d).replace('.', ',');
+
+/* ---------- geometry (x = along the track, y = across, z = up; 1 unit = 1 cm) ---------- */
+const BRD = [0, 0, 300, 73], BRD_H = 3;                       // table top
+const TRK = [2, 10, 296, 36], SZ = 5;                         // track plank (x0, y0, x1, y1), top surface height
+const LIP = 1.5, LIP_H = 1.5, YC = 23;
+const TRK_TOP = on(PZ(SZ), rectUV(TRK[0], TRK[1], TRK[2], TRK[3]));
+const BTOP = boardTop(BRD[0], BRD[1], BRD[2], BRD[3], BRD_H, 5);
+// launcher
+const HX0 = 15, HX1 = 45, HY0 = 17, HY1 = 29, HZ0 = 5.8, HZ1 = 19, WALL = 1.2;
+const RODZ = 11.5, ROD_R = .8, ROD0 = 11, PAD0 = 56, PAD_T = 2, PAD_R = 3.4;
+const COL0 = 34, PVX = 40, PVZ = 15.2;                       // collar front at rest, pawl pivot
+const NOTCH = [3, 5, 7];
+// car (drawn ~1.5x real size)
+const CAR_L = 30, BMP = 1.2, CY0 = 15, CY1 = 31, CZ0 = 7.4, CZ1 = 16, WHR = 3.6, AXZ = SZ + WHR;
+const CAR_PROF = rrUV(CY0, CZ0, CY1, CZ1, 2.2);
+const WHEEL_Y = [[12.4, 14.6], [31.4, 33.6]], AX_OFF = [6.5, 23.5];
+const X0 = PAD0 + CAR_L;                                      // ruler zero = car front at launch
+const STOP_X = X0 + 200;                                      // rubber face of the stopper (2,0 m)
+const RUL = [X0 - 5, 51, X0 + 207, 59], LANE_Y = 41.6, LANE_TY = 47.6;
+const SW = [250, 66, 5.6];                                  // stopwatch centre and radius
+const H_ALL = 24;
+
+const LNCH = { l:'#76a0e2', m:'#5a82c6', d:'#1c2948' }, YEL = PALS.mustard, RUB = DARK;
+const ALU = { l:'#e3e7e8', m:'#b9c0c3', d:'#858e92' }, STEEL = METAL, RULM = matOf('#f2d16b'), BRASS = matOf('#d8b25a');
+const swTone = (n, m) => toneI(n, m);
+const boxPart = (x0, y0, z0, x1, y1, z1, m, sh = toneI, w = .9) => ({ box:[[x0, y0, z0], [x1, y1, z1]], svg: box(x0, y0, z0, x1, y1, z1, m, sh, w) });
+
+/* flat text lying on a horizontal plane, centred at (x, yc); turned 180 deg when seen from behind so it stays upright */
+function txZ(x, yc, z, str, size, col = INK, w = 700){
+  let U = Dv(1, 0, 0), V = Dv(0, 1, 0), sg = 1;
+  if (U[0] < -1e-3){ U = U.map(v => -v); V = V.map(v => -v); sg = -1; }
+  const o = P(x, yc + sg*size*.35, z);
+  return `<text transform="${txM(o, U, V)}" font-size="${size}" fill="${col}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="${w}" letter-spacing=".02em">${str}</text>`;
+}
+/* flat arrow on the table from xa (tail) to xb (head) */
+function flatArrow(xa, xb, yc, z, col){
+  const dir = Math.sign(xb - xa) || 1, len = Math.abs(xb - xa), hl = Math.min(6, len*.6), hw = 3.6, sw = 1.4, xn = xb - dir*hl;
+  const pts = [[xa, yc - sw], [xn, yc - sw], [xn, yc - hw], [xb, yc], [xn, yc + hw], [xn, yc + sw], [xa, yc + sw]].map(([x, y]) => [x, y, z]);
+  return fill(pd(pts), col) + ink(pd(pts), 1);
+}
+/* a helical compression spring along x */
+function coilX(xa, xb, y, z, r, turns){
+  const pts = []; const n = turns*14;
+  for (let i = 0; i <= n; i++){ const t = i/n, th = t*turns*2*Math.PI; pts.push([xa + (xb - xa)*t, y + r*Math.sin(th), z + r*Math.cos(th)]); }
+  const d = pd(pts, false);
+  return `<path d="${d}" fill="none" stroke="${INK}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/><path d="${d}" fill="none" stroke="#e4e9ea" stroke-width=".6" stroke-linejoin="round" stroke-linecap="round"/>`;
+}
+const rotXZ = (a, cx, cz) => ([x, z]) => [cx + x*Math.cos(a) - z*Math.sin(a), cz + x*Math.sin(a) + z*Math.cos(a)];
+
+/* ---------- table, track, ruler, props ---------- */
+function surfaceTex(st){
+  const key = st.surf, y0 = TRK[1] + LIP, y1 = TRK[3] - LIP, z = SZ + .01;
+  const top = on(PZ(z), rectUV(TRK[0], y0, TRK[2], y1));
+  let s = fill(pd(top), SURF[key].col);
+  if (key === 'kaca'){
+    for (let x = 14; x < TRK[2] - 12; x += 34) s += fill(pd([[x, y1, z], [x + 4, y1, z], [x + 14, y0, z], [x + 10, y0, z]]), '#ffffff', 'opacity=".55"');
+    for (let x = 30; x < TRK[2]; x += 68) s += fill(pd([[x, y1, z], [x + 1.6, y1, z], [x + 11.6, y0, z], [x + 10, y0, z]]), '#ffffff', 'opacity=".45"');
+  } else if (key === 'kayu'){
+    let g = '';
+    for (const [yy, ph] of [[13.5, 0], [16.8, 1.3], [20.4, 2.1], [24.1, .4], [27.6, 1.8], [31.2, .9]]){
+      const pts = []; for (let x = TRK[0]; x <= TRK[2]; x += 6) pts.push([x, yy + .5*Math.sin(x/17 + ph), z]); g += pd(pts, false); }
+    s += `<path d="${g}" fill="none" stroke="#a8743f" stroke-width=".5" stroke-linecap="round"/>`;
+    for (let x = 60; x < TRK[2]; x += 60) s += line([[x, y0, z], [x, y1, z]], .5);
+  } else {
+    let dk = '', lt = '';
+    for (let x = TRK[0] + 1.5, i = 0; x < TRK[2]; x += 2.6, i++) for (let y = y0 + 1 + (i % 2)*1.3; y < y1; y += 2.6){
+      const [X, Y] = P(x, y, z); if ((i + Math.round(y)) % 3) dk += `M${f(X - .5)} ${f(Y)}h1`; else lt += `M${f(X - .5)} ${f(Y)}h1`; }
+    s += `<path d="${dk}" stroke="#7f2c24" stroke-width="1.1" stroke-linecap="round"/><path d="${lt}" stroke="#de7a6c" stroke-width="1.1" stroke-linecap="round"/>`;
+  }
+  return s + ink(pd(top), .7);
+}
+function trackParts(st, out){
+  // plank (aluminium) with the chosen surface layer on top
+  out.push({ box:[[TRK[0], TRK[1], BRD_H], [TRK[2], TRK[3], SZ]], svg: box(TRK[0], TRK[1], BRD_H, TRK[2], TRK[3], SZ, ALU, toneI, 1) + surfaceTex(st)
+    + hullInk(on(PZ(BRD_H), rectUV(TRK[0], TRK[1], TRK[2], TRK[3])).concat(TRK_TOP), 1.8) });
+  for (const [a, b] of [[TRK[1], TRK[1] + LIP], [TRK[3] - LIP, TRK[3]]]) out.push(boxPart(TRK[0], a, SZ, TRK[2], b, SZ + LIP_H, ALU, toneI, .9));
+}
+function rulerParts(out){
+  const [x0, y0, x1, y1] = RUL, zt = BRD_H + .4;
+  let s = box(x0, y0, BRD_H, x1, y1, zt, RULM, toneI, .9), tk = '';
+  for (let i = 0; i <= 20; i++){ const x = X0 + 10*i; tk += pd([[x, y0, zt + .01], [x, y0 + (i % 5 ? 2 : 3.6), zt + .01]], false); }
+  for (let i = 0; i < 200; i += 2){ if (i % 10) { const x = X0 + i; tk += pd([[x, y0, zt + .01], [x, y0 + 1, zt + .01]], false); } }
+  s += `<path d="${tk}" fill="none" stroke="${INK}" stroke-width=".55"/>`;
+  for (let i = 0; i <= 4; i++) s += txZ(X0 + 50*i, 57, zt + .02, String(50*i), 4.6);
+  s += txZ(X0 + 9, 57, zt + .02, 'cm', 3.4);
+  out.push({ box:[[x0, y0, BRD_H], [x1, y1, zt]], svg: s });
+}
+function stopwatchPart(st, out){
+  const [x, y, r] = SW, z0 = BRD_H, z1 = BRD_H + 2.6;
+  let s = cyl(x, y, z0, z1, r, matOf('#e2483d'), toneI, 1.2, 28);
+  s += fill(pd(on(PZ(z1 + .01), ellUV(x, y, r*.82, r*.82, 24))), '#f4efe2') + ink(pd(on(PZ(z1 + .01), ellUV(x, y, r*.82, r*.82, 24))), .6);
+  const scr = on(PZ(z1 + .02), rectUV(x - 3.3, y - 1.9, x + 3.3, y + 1.9));
+  s += fill(pd(scr), '#1d2a26') + ink(pd(scr), .6) + txZ(x, y, z1 + .03, fmt(st.t, 2), 2.7, '#8af0ae', 800);
+  out.push({ box:[[x - r, y - r, z0], [x + r, y + r, z1]], svg: s });
+  // crown button + lanyard ring on the far rim
+  out.push({ box:[[x - .9, y - r - 2, z0 + .6], [x + .9, y - r + .2, z0 + 2.2]], svg: rod([x, y - r + .2, z0 + 1.4], [x, y - r - 1.6, z0 + 1.4], .8, STEEL, toneI, .8) });
+}
+
+/* ---------- launcher ---------- */
+function launcherParts(st, out, k){
+  const c = st.c, a = .38*st.trig, R = rotXZ(a, PVX, PVZ);
+  // base flange screwed to the track
+  out.push({ box:[[HX0 - 2, HY0 - 2, SZ], [HX1 + 2, HY1 + 2, HZ0]], svg: box(HX0 - 2, HY0 - 2, SZ, HX1 + 2, HY1 + 2, HZ0, LNCH, toneI, .9)
+    + (facing([0,0,1]) ? [[HX0 - 1, HY0 - 1], [HX1 + 1, HY0 - 1], [HX0 - 1, HY1 + 1], [HX1 + 1, HY1 + 1]].map(([x, y]) => { const e = on(PZ(HZ0 + .01), ellUV(x, y, .5, .5, 10)); return fill(pd(e), STEEL.l) + ink(pd(e), .4); }).join('') : '') });
+  // housing (closed box with a slot for the lever on top)
+  const OUTP = rectUV(HY0, HZ0, HY1, HZ1);
+  let body = box(HX0, HY0, HZ0, HX1, HY1, HZ1, LNCH, tone, 1);
+  const slot = on(PZ(HZ1 + .01), rectUV(PVX - 4, YC - .8, PVX + 1.5, YC + .8));
+  body += fill(pd(slot), '#1d1a16') + ink(pd(slot), .5);
+  for (const [xx, nn] of [[HX1, [1,0,0]], [HX0, [-1,0,0]]]) if (facing(nn)){ const h = on(PX(xx + (nn[0] > 0 ? .01 : -.01)), ellUV(YC, RODZ, 1.3, 1.3, 14)); body += fill(pd(h), '#1d1a16') + ink(pd(h), .5); }
+  if (facing([0,1,0])) body += `<g>${txYcap('PELONTAR', (HX0 + HX1)/2, HY1 + .01, (HZ0 + HZ1)/2 - 1.2, 3.2)}</g>`;
+  body += hullInk([...on(PX(HX0), OUTP), ...on(PX(HX1), OUTP)], 2.2);
+  const svg = k > 0 ? xrGhost(body, `<g opacity="${f(k)}">${launcherMech(st)}</g>`, k, OUTP, HX0, HX1, LNCH) : body;
+  out.push({ box:[[HX0, HY0, HZ0], [HX1, HY1, HZ1]], svg });
+  // outside: rod tail + pull knob behind, rod front + notches + push pad in front
+  const tail0 = ROD0 - c;
+  out.push({ box:[[tail0 - 3, YC - 1.8, RODZ - 1.8], [HX0, YC + 1.8, RODZ + 1.8]], svg: rod([tail0, YC, RODZ], [HX0, YC, RODZ], ROD_R, STEEL, toneI, .8)
+    + rod([tail0 - 3, YC, RODZ], [tail0, YC, RODZ], 1.8, RUB, toneI, 1) });
+  const padB = PAD0 - PAD_T - c;
+  let fr = rod([HX1, YC, RODZ], [padB, YC, RODZ], ROD_R, STEEL, toneI, .8);
+  for (const n of NOTCH){ const nx = 43.5 + n - c; if (nx > HX1 + .4 && nx < padB - .4) fr += notchMark(nx); }
+  out.push({ box:[[HX1, YC - 1, RODZ - 1], [padB, YC + 1, RODZ + 1]], svg: fr });
+  out.push({ box:[[padB, YC - PAD_R, RODZ - PAD_R], [padB + PAD_T, YC + PAD_R, RODZ + PAD_R]], svg: act('pad', rod([padB, YC, RODZ], [padB + PAD_T, YC, RODZ], PAD_R, RUB, toneI, 1.1, PAD_R, 22)) });
+  // release lever above the housing (turns with the pawl)
+  const top = R([-1.1, 7.6]), base = R([-.4, 2.6]);
+  const tp = [top[0], YC, top[1]], bp = [base[0], YC, base[1]];
+  const fz = (HZ1 - bp[2]) / (tp[2] - bp[2]), mid = [bp[0] + (tp[0] - bp[0])*fz, YC, HZ1];
+  out.push({ box:[[Math.min(tp[0], mid[0]) - 1.2, YC - 1.2, HZ1], [Math.max(tp[0], mid[0]) + 1.2, YC + 1.2, tp[2] + 1.3]],
+    svg: act('lever', rod(mid, tp, .55, STEEL, toneI, .8) + rod(tp, [tp[0], YC, tp[2] + .01], 1.3, matOf('#e2483d'), toneI, 1, 1.3, 14) + ballAt(tp, 1.35, '#e2483d')) });
+}
+const ballAt = (p, r, col) => { const [X, Y] = P(...p), rr = r*1.22; return `<circle cx="${f(X)}" cy="${f(Y)}" r="${f(rr)}" fill="${col}" stroke="${INK}" stroke-width=".9"/><circle cx="${f(X - rr*.35)}" cy="${f(Y - rr*.35)}" r="${f(rr*.28)}" fill="#fff" opacity=".7"/>`; };
+const notchMark = nx => { const q = [[nx - .35, YC - .5, RODZ + ROD_R + .02], [nx + .35, YC - .5, RODZ + ROD_R + .02], [nx + .35, YC + .5, RODZ + ROD_R + .02], [nx - .35, YC + .5, RODZ + ROD_R + .02]];
+  return facing([0,0,1]) ? fill(pd(q), '#2b2523') : ''; };
+// text on the side plane y = const, read from the +y side
+function txYcap(str, x, y, z, size){ return txY(x, y, z, str, size, '#f4f1ea', 800); }
+
+function launcherMech(st){
+  const c = st.c, a = .38*st.trig, R = rotXZ(a, PVX, PVZ), parts = [];
+  // rod inside + notches
+  let r = rod([HX0, YC, RODZ], [HX1, YC, RODZ], ROD_R, STEEL, toneI, .7);
+  for (const n of NOTCH){ const nx = 43.5 + n - c; if (nx > HX0 + .4 && nx < HX1 - .4) r += notchMark(nx); }
+  parts.push({ box:[[HX0, YC - ROD_R, RODZ - ROD_R], [HX1, YC + ROD_R, RODZ + ROD_R]], svg: r });
+  // guide bushes in the two walls
+  for (const x of [HX0, HX1 - WALL]) parts.push({ box:[[x, YC - 1.4, RODZ - 1.4], [x + WALL, YC + 1.4, RODZ + 1.4]], svg: rod([x, YC, RODZ], [x + WALL, YC, RODZ], 1.4, BRASS, toneI, .6) });
+  // collar fixed on the rod, compression spring from the back wall to the collar
+  const cx = COL0 - c;
+  parts.push({ box:[[cx, YC - 2.6, RODZ - 2.6], [cx + 1.5, YC + 2.6, RODZ + 2.6]], svg: rod([cx, YC, RODZ], [cx + 1.5, YC, RODZ], 2.6, BRASS, toneI, .8) });
+  parts.push({ box:[[HX0 + WALL, YC - 2.3, RODZ - 2.3], [cx, YC + 2.3, RODZ + 2.3]], svg: coilX(HX0 + WALL + .1, cx - .1, YC, RODZ, 2.2, 8) });
+  // pawl (latch) on its pivot pin: its tip sits in the notch on top of the rod
+  const PAWL = [[-1.2, 1.1], [1.2, .9], [4.0, -2.2], [3.5, -2.9], [2.6, -2.4], [-1.2, -1.1]].map(R);
+  const pw = y => PAWL.map(([x, z]) => [x, y, z]);
+  const A = pw(YC - 1), B = pw(YC + 1), cap = facing([0,1,0]) ? B : A;
+  parts.push({ box:[[PVX - 1.6, YC - 1, Math.min(...PAWL.map(p => p[1]))], [Math.max(...PAWL.map(p => p[0])), YC + 1, PVZ + 1.4]],
+    svg: loft(A, B, n => toneI(n, matOf('#f2c230'))) + shape(cap, '#f2c230', .7) + hullInk([...A, ...B], 1) });
+  parts.push({ box:[[PVX - .5, HY0, PVZ - .5], [PVX + .5, HY1, PVZ + .5]], svg: rod([PVX, HY0, PVZ], [PVX, HY1, PVZ], .5, STEEL, toneI, .6) });
+  // leaf spring from a screw under the housing top, pressing the pawl down
+  const lp = R([1.5, .9]);
+  parts.push({ box:[[lp[0] - .3, YC - .6, lp[1]], [44, YC + .6, HZ1]], svg: line([[44, YC, HZ1 - WALL], [43, YC, HZ1 - WALL - .2], [lp[0], YC, lp[1] + .2]], 1.6)
+    + `<path d="${pd([[44, YC, HZ1 - WALL], [43, YC, HZ1 - WALL - .2], [lp[0], YC, lp[1] + .2]], false)}" fill="none" stroke="#cfd6d8" stroke-width=".6"/>` + rod([44, YC, HZ1 - WALL], [44, YC, HZ1 - WALL - .6], .6, STEEL, toneI, .5) });
+  // lever stem inside the housing, from the pawl up to the slot
+  const t0 = R([-.4, 1]), t1 = R([-.7, 4.4]);
+  parts.push({ box:[[Math.min(t0[0], t1[0]) - .6, YC - .6, t0[1]], [Math.max(t0[0], t1[0]) + .6, YC + .6, HZ1]], svg: rod([t0[0], YC, t0[1]], [t1[0], YC, t1[1]], .55, STEEL, toneI, .7) });
+  return byDepth(parts);
+}
+
+/* ---------- car ---------- */
+function carParts(st, m, out, k){
+  const r0 = PAD0 - st.c + st.s*100 - 0;            // rear of the car (on the pad when at the launcher)
+  const rear = r0, bx0 = rear + BMP, bx1 = rear + CAR_L - BMP;
+  // body: rounded profile swept along x
+  let body = extrude(CAR_PROF, bx0, bx1, m);
+  for (const [xx, nn] of [[bx1, [1,0,0]], [bx0, [-1,0,0]]]) if (facing(nn)){ const cp = on(PX(xx), CAR_PROF); body += fill(pd(cp), tone(nn, m)) + ink(pd(cp), 1); }
+  // white stripe + number on each side
+  for (const [yy, nn] of [[CY1 + .01, [0,1,0]], [CY0 - .01, [0,-1,0]]]) if (facing(nn)){
+    const q = on(PY(yy), rectUV(bx0 + 1.5, 12.2, bx1 - 1.5, 13.4)); body += fill(pd(q), '#fff4d6') + ink(pd(q), .5); }
+  if (facing([0,0,1])){ const q = on(PZ(CZ1 + .01), rectUV(bx0 + 3, CY0 + 3, bx1 - 3, CY1 - 3)); body += ink(pd(q), .6); }
+  body += hullInk([...on(PX(bx0), CAR_PROF), ...on(PX(bx1), CAR_PROF)], 2.4);
+  const svg = k > 0 ? xrGhost(body, `<g opacity="${f(k)}">${carMech(st, rear)}</g>`, k, CAR_PROF, bx0, bx1, m) : body;
+  out.push({ box:[[bx0, CY0, CZ0], [bx1, CY1, CZ1]], svg: act('car', svg) });
+  // rear plate (hit by the push pad) and front rubber bumper
+  out.push(boxPart(rear, 18, 9, bx0, 28, 14, RUB, toneI, .8));
+  out.push(boxPart(bx1, 17, 8.6, rear + CAR_L, 29, 12.6, RUB, toneI, .8));
+  // wheels: tyre + hub with three holes that turn as the car rolls
+  const th = -(st.roll || 0) / WHR;
+  for (const ax of AX_OFF) for (const [ya, yb] of WHEEL_Y){
+    const x = rear + ax, out1 = facing([0, ya < YC ? -1 : 1, 0]), capY = facing([0,1,0]) ? yb : ya;
+    let w = rod([x, ya, AXZ], [x, yb, AXZ], WHR, RUB, toneI, 1.1, WHR, 26);
+    const hub = on(PY(capY + (capY === yb ? .02 : -.02)), ellUV(x, AXZ, 1.9, 1.9, 18));
+    w += fill(pd(hub), '#d6dadb') + ink(pd(hub), .6);
+    for (let i = 0; i < 3; i++){ const aa = th + i*2*Math.PI/3, hc = on(PY(capY + (capY === yb ? .03 : -.03)), ellUV(x + 1.1*Math.cos(aa), AXZ + 1.1*Math.sin(aa), .38, .38, 8)); w += fill(pd(hc), '#3a3632'); }
+    // axle stub between wheel and body
+    const ys = ya < YC ? [yb, CY0] : [CY1, ya];
+    w = (out1 ? rod([x, ys[0], AXZ], [x, ys[1], AXZ], .5, STEEL, toneI, .5) + w : w + rod([x, ys[0], AXZ], [x, ys[1], AXZ], .5, STEEL, toneI, .5));
+    out.push({ box:[[x - WHR, Math.min(ya, ys[0], ys[1]), SZ], [x + WHR, Math.max(yb, ys[0], ys[1]), AXZ + WHR]], svg: w });
+  }
+  // 200 g steel block on top
+  if (st.load){ const cx = rear + CAR_L/2;
+    let s = box(cx - 4, 20, CZ1, cx + 4, 26, CZ1 + 2, STEEL, toneI, 1);
+    if (facing([0,0,1])) s += txZ(cx, YC, CZ1 + 2.02, '200 g', 2.4);
+    out.push({ box:[[cx - 4, 20, CZ1], [cx + 4, 26, CZ1 + 2]], svg: s }); }
+  return rear;
+}
+function carMech(st, rear){
+  const parts = [], bx0 = rear + BMP, bx1 = rear + CAR_L - BMP;
+  parts.push(boxPart(bx0 + .8, CY0 + 1, CZ0 + .1, bx1 - .8, CY1 - 1, CZ0 + .7, matOf('#9aa3a7'), toneI, .7));
+  for (const ax of AX_OFF){ const x = rear + ax;
+    parts.push({ box:[[x - .5, CY0, AXZ - .5], [x + .5, CY1, AXZ + .5]], svg: rod([x, CY0, AXZ], [x, CY1, AXZ], .5, STEEL, toneI, .6) });
+    for (const [ya, yb] of [[CY0 + .2, CY0 + 2.2], [CY1 - 2.2, CY1 - .2]]){
+      parts.push(boxPart(x - 1.8, ya, CZ0 + .7, x + 1.8, yb, AXZ - 1.5, matOf('#7c8389'), toneI, .6));          // bearing seat
+      const capY = facing([0,1,0]) ? yb : ya, ring = on(PY(capY + (capY === yb ? .02 : -.02)), ellUV(x, AXZ, .95, .95, 14));
+      parts.push({ box:[[x - 1.6, ya, AXZ - 1.6], [x + 1.6, yb, AXZ + 1.6]], svg: rod([x, ya, AXZ], [x, yb, AXZ], 1.6, BRASS, toneI, .7, 1.6, 18) + fill(pd(ring), '#8a7a4a') + ink(pd(ring), .4) });
+    }
+  }
+  // threaded post that holds the load block
+  const cx = rear + CAR_L/2;
+  parts.push({ box:[[cx - .5, YC - .5, CZ0 + .7], [cx + .5, YC + .5, CZ1]], svg: rod([cx, YC, CZ0 + .7], [cx, YC, CZ1], .5, STEEL, toneI, .6) });
+  return byDepth(parts);
+}
+
+/* ---------- stopper ---------- */
+function stopperParts(out){
+  out.push(boxPart(STOP_X, 16, 8, STOP_X + 2.5, 30, 15, RUB, toneI, 1));
+  let s = box(STOP_X + 2.5, TRK[1] + LIP, SZ, STOP_X + 8, TRK[3] - LIP, 17, YEL, tone, 1);
+  if (facing([0,0,1])) for (const y of [16, 30]){ const e = on(PZ(17.01), ellUV(STOP_X + 5.2, y, .7, .7, 10)); s += fill(pd(e), STEEL.l) + ink(pd(e), .5); }
+  out.push({ box:[[STOP_X + 2.5, TRK[1] + LIP, SZ], [STOP_X + 8, TRK[3] - LIP, 17]], svg: s });
+}
+
+/* ---------- force arrows (flat, in a lane on the table beside the track) ---------- */
+const F_SCALE = 150, F_SCALE_SPR = 20;                         // cm of arrow per newton (spring arrow drawn 7x shorter)
+function arrowParts(st, out){
+  const xc = PAD0 - st.c + st.s*100 + CAR_L/2, z = BRD_H + .05;
+  const items = [];
+  if (st.phase === 'push' && st.c > .05){ const F = K_SPR*st.c/100; items.push([xc, xc + F*F_SCALE_SPR, '#3f7fc0', 'GAYA PEGAS']); }
+  if ((st.phase === 'run' || st.phase === 'pose') && st.v > 1e-4){ const F = SURF[st.surf].mu*massOf(st)*G_ACC; const len = F*F_SCALE, back = xc - st.dir*len;   // drawn behind the car; if it would leave the table, ahead of it pointing back at it
+    items.push(back > 4 && back < BRD[2] - 4 ? [xc, back, '#e2483d', 'GAYA GESEK'] : [xc + st.dir*len, xc, '#e2483d', 'GAYA GESEK']); }
+  for (const [a, b, col, txt] of items){
+    const s = flatArrow(a, b, LANE_Y, z, col) + txZ((a + b)/2, LANE_TY, z, txt, 4.4, col === '#e2483d' ? '#a3271e' : '#1f4f86', 800);
+    out.push({ box:[[Math.min(a, b) - 1, LANE_Y - 4, BRD_H], [Math.max(a, b) + 1, LANE_TY + 2, z]], svg: s });
+  }
+}
+
+/* ---------- scene ---------- */
+function carShadowPts(rear){ const pts = [];
+  for (const x of [rear, rear + CAR_L]) for (const y of [12.4, 33.6]) for (const z of [SZ, CZ1 + 1]) pts.push([x, y, z]); return pts; }
+function scene(st, m){
+  const k = ease(st.xr || 0), rear = PAD0 - st.c + st.s*100;
+  let s = board(BRD[0], BRD[1], BRD[2], BRD[3], BRD_H, 5, WOOD);
+  s += clipTo(BTOP, castShadow([...on(PZ(BRD_H), rectUV(TRK[0], TRK[1], TRK[2], TRK[3])), ...on(PZ(SZ + LIP_H), rectUV(TRK[0], TRK[1], TRK[2], TRK[3]))], BRD_H)
+    + castShadow([...on(PZ(BRD_H), ellUV(SW[0], SW[1], SW[2], SW[2], 16)), ...on(PZ(BRD_H + 2.6), ellUV(SW[0], SW[1], SW[2], SW[2], 16))], BRD_H));
+  // lower layer: things on the table
+  const low = []; trackParts(st, low); rulerParts(low); stopwatchPart(st, low); arrowParts(st, low);
+  s += byDepth(low);
+  // shadows on the track top
+  s += clipTo(TRK_TOP, castShadow(carShadowPts(rear), SZ)
+    + castShadow([...on(PZ(SZ), rectUV(HX0 - 2, HY0 - 2, HX1 + 2, HY1 + 2)), ...on(PZ(HZ1), rectUV(HX0, HY0, HX1, HY1))], SZ)
+    + castShadow([...on(PZ(SZ), rectUV(STOP_X, TRK[1] + LIP, STOP_X + 8, TRK[3] - LIP)), ...on(PZ(17), rectUV(STOP_X, TRK[1] + LIP, STOP_X + 8, TRK[3] - LIP))], SZ));
+  // upper layer: lips, launcher, car, stopper
+  const up = [];
+  for (const [a, b] of [[TRK[1], TRK[1] + LIP], [TRK[3] - LIP, TRK[3]]]) up.push(boxPart(TRK[0], a, SZ, TRK[2], b, SZ + LIP_H, ALU, toneI, .9));
+  launcherParts(st, up, k); carParts(st, m, up, k); stopperParts(up);
+  s += byDepth(up);
+  s += labels(st, k, rear);
+  return s;
+}
+function labels(st, k, rear){
+  // pills placed relative to the track as seen now: u = along the track on screen, n = across it (pointing up the screen)
+  const d = Dv(1, 0, 0), l = Math.hypot(...d) || 1, u = [d[0]/l, d[1]/l]; let n = [-u[1], u[0]]; if (n[1] > 0) n = [-n[0], -n[1]];
+  const vb = document.getElementById('fig').viewBox.baseVal, K = INK_K;
+  const T = (p, side, dist, along, text, on) => { const [X, Y] = P(...p), off = sd => [n[0]*sd*dist + u[0]*along, n[1]*sd*dist + u[1]*along];
+    let [dx, dy] = off(side); const yy = Y + dy*K, hw = (text.length*.62 + 1.5)*8.6*K/2;
+    if (yy < vb.y + 14*K || yy > vb.y + vb.height - 14*K) [dx, dy] = off(-side);              // no room on that side: flip
+    const xx = Math.max(vb.x + hw + 2*K, Math.min(vb.x + vb.width - hw - 2*K, X + dx*K)); dx = (xx - X)/K;
+    return tag(p, dx, dy, text, on); };
+  const moving = st.phase === 'run' || st.phase === 'push', xr = k > .6;
+  let s = T([rear + CAR_L/2, YC, CZ1], 1, 34, xr ? 4 : 0, 'MOBIL', moving)
+    + T([rear + AX_OFF[1], 33.6, AXZ], -1, 30, xr ? 46 : 18, 'RODA', moving)
+    + T([X0 + 120, 55, BRD_H + .4], -1, 22, 0, 'MISTAR', false)
+    + T([STOP_X + 5, YC, 17], 1, 30, 0, 'PENAHAN', !!st.bumped && st.phase === 'stop');
+  if (xr){
+    s += T([26, YC + 2.2, RODZ + 2.2], -1, 34, -46, 'PEGAS', ['push', 'load', 'ready'].includes(st.phase))
+      + T([PVX + 2.6, YC, PVZ - 1.6], 1, 40, -40, 'PENGAIT', st.phase === 'ready' || st.phase === 'fire')
+      + T([PVX - 1.5, YC, HZ1 + 4], 1, 26, -88, 'TUAS', st.phase === 'fire')
+      + T([rear + AX_OFF[0], CY1 - 1, AXZ], -1, 34, -4, 'POROS', moving)
+      + T([rear + AX_OFF[1], CY1 - 1.2, AXZ + 1.2], 1, 38, 62, 'BANTALAN RODA', moving);
+  }
+  return s;
+}
+
+/* ---------- behaviour ---------- */
+let ui, simOn = false, runId = 0;
+const MOVING = ['back', 'load', 'fire', 'push', 'run'];
+const busy = st => MOVING.includes(st.phase);
+function stepSim(st, dt){
+  if (st.phase === 'back'){                              // the car is pushed back by hand to the launcher
+    const d = Math.min(Math.abs(st.s), 1.4*dt), sg = st.s > 0 ? -1 : 1;
+    st.s += sg*d; st.roll += sg*d*100;
+    if (Math.abs(st.s) < 1e-6){ st.s = 0; st.phase = 'load'; }
+    return true;
+  }
+  if (st.phase === 'load'){                              // the car pushes the pad in until the pawl drops into the notch
+    const goal = st.pull, rate = 9*dt, prev = st.c;
+    st.c = st.c < goal ? Math.min(goal, st.c + rate) : Math.max(goal, st.c - rate);
+    st.roll -= (st.c - prev);
+    if (st.c === goal){ st.phase = 'ready'; st.trig = 0; ui.flash(`Pengait menahan pegas yang tertekan ${goal} cm`, 2200); return false; }
+    return true;
+  }
+  if (st.phase === 'fire'){ st.trig = Math.min(1, st.trig + dt/.15); if (st.trig >= 1){ st.phase = 'push'; st.tau = 0; } return true; }
+  if (st.phase === 'push'){
+    st.tau += dt*SLOWMO;
+    const w = Math.sqrt(K_SPR/massOf(st)), ph = Math.min(Math.PI/2, w*st.tau), prev = st.c;
+    st.c = st.X*Math.cos(ph); st.roll += prev - st.c;
+    st.v = st.X/100*w*Math.sin(ph); st.dir = 1;
+    if (ph >= Math.PI/2){
+      st.c = 0; st.s = 0; st.v0 = st.X/100*w; st.v = st.v0; st.phase = 'run'; st.t = 0; st.dist = 0;
+      st.seg = { s0:0, u:st.v0, dir:1, tau:0 };
+      if (st.runs > 1) ui.flash(`Pegas mendorong mobil: kelajuan awal ${fmt(st.v0)} m/s`, 1800);
+    }
+    return true;
+  }
+  if (st.phase === 'run'){
+    st.trig = Math.max(0, st.trig - dt/.4);
+    const a = accOf(st); let rem = dt, guard = 0;
+    while (rem > 1e-9 && st.phase === 'run' && guard++ < 6){
+      const sg = st.seg, tStop = sg.u / a; let h = Math.min(rem, tStop - sg.tau), bump = false;
+      if (sg.dir > 0){ const T = sg.tau + h, pos = sg.s0 + sg.u*T - .5*a*T*T;
+        if (pos >= TRACK_M){ const D = sg.u*sg.u - 2*a*(TRACK_M - sg.s0); h = Math.max(0, (sg.u - Math.sqrt(Math.max(0, D)))/a - sg.tau); bump = true; } }
+      sg.tau += h; rem -= h; st.t += h;
+      const pos = sg.s0 + sg.dir*(sg.u*sg.tau - .5*a*sg.tau*sg.tau);
+      st.dist += Math.abs(pos - st.s); st.roll += (pos - st.s)*100; st.s = pos; st.v = Math.max(0, sg.u - a*sg.tau); st.dir = sg.dir;
+      if (bump){ st.s = TRACK_M; st.seg = { s0:TRACK_M, u:E_BUMP*st.v, dir:-1, tau:0 }; st.bumped = true;
+        ui.flash('Mobil menumbuk penahan karet, memantul pelan, lalu berhenti', 2000); continue; }
+      if (sg.tau >= tStop - 1e-9){ st.v = 0; st.phase = 'stop'; onStop(st); }
+    }
+    return st.phase === 'run' || st.trig > 0;
+  }
+  st.trig = Math.max(0, st.trig - dt/.4);
+  return st.trig > 0;
+}
+function runLoop(){
+  if (simOn) return; simOn = true;
+  ui.animate(dt => { const go = stepSim(ui.st, dt); if (!go) simOn = false; return go; });
+}
+function onStop(st){
+  st.avg = st.t > 0 ? st.dist / st.t : 0;
+  const id = ++runId, msg = `Kelajuan rata-rata = jarak / waktu = ${fmt(st.dist)} m / ${fmt(st.t)} s = ${fmt(st.avg)} m/s`;
+  setTimeout(() => { if (id !== runId) return; ui.flash(msg, 4200);
+    setTimeout(() => { if (id !== runId) return; ui.flash('Gesekan menghentikan mobil; tanpa gesekan ia terus bergerak (Hukum I)', 3600); }, 4400); }, st.bumped ? 1200 : 150);
+}
+function resetRun(st){ st.t = 0; st.dist = 0; st.v = 0; st.avg = null; st.bumped = false; runId++; }
+function pullTo(st, cm){
+  if (busy(st)) return ui.flash('Tunggu mobil berhenti dulu');
+  st.pull = cm; resetRun(st);
+  st.phase = Math.abs(st.s) > 1e-6 ? 'back' : 'load';
+  runLoop();
+}
+function release(st){
+  if (busy(st)) return ui.flash('Tunggu mobil berhenti dulu');
+  if (st.phase !== 'ready') return ui.flash('Tarik pegas dulu: pilih 3 cm, 5 cm, atau 7 cm');
+  st.X = st.c; st.runs = (st.runs || 0) + 1; st.phase = 'fire'; resetRun(st);
+  if (st.runs === 1) ui.flash('Ilustrasi: mobil diperbesar; dorongan pegas diperlambat 5×, panahnya diperkecil', 2600);
+  runLoop();
+}
+function setSurf(st, key){
+  if (busy(st)) return ui.flash('Tunggu mobil berhenti dulu');
+  st.surf = key; ui.flash(SURF[key].note, 2400);
+}
+function setLoad(st, on){
+  if (busy(st)) return ui.flash('Tunggu mobil berhenti dulu');
+  st.load = on;
+  ui.flash(on ? 'Massa 0,40 kg: lebih sulit dipercepat (Hukum II Newton, a = F/m)' : 'Massa 0,20 kg: lebih mudah dipercepat (a = F/m)', 2600);
+}
+
+ui = mountFigure({
+  fig:'4', turn:'full', title:'Mobil di lintasan',
+  size:[BRD[2], BRD[3], H_ALL], palette:'tomato', credit:false,
+  // phase: idle | back | load | ready | fire | push | run | stop | pose.  c = spring compression (cm), s = car front past the 0 mark (m)
+  state:{ phase:'idle', surf:'kayu', load:false, pull:5, c:0, s:0, v:0, dir:1, t:0, dist:0, avg:null, roll:0, trig:0, X:0, tau:0, runs:0, bumped:false },
+  scene,
+  readout: st => st.avg != null ? `kelajuan rata-rata ${fmt(st.avg)} m/s` : '',
+  stats: st => [
+    { label:'Waktu', value: fmt(st.t) + ' s' },
+    { label:'Jarak', value: fmt(st.dist) + ' m' },
+    st.avg != null ? { label:'Rata-rata', value: fmt(st.avg) + ' m/s', small:true } : { label:'Kelajuan', value: fmt(st.v) + ' m/s', small:true } ],
+  buttons:[
+    { label:'Tarik pegas', choices: st => NOTCH.map(cm => ({ label:`${cm} cm`, current: st.phase === 'ready' && st.pull === cm, disabled: busy(st), why:'Tunggu mobil berhenti dulu', onClick: st => pullTo(st, cm) })) },
+    { label:'Permukaan', choices: st => Object.keys(SURF).map(key => ({ label: SURF[key].label, current: st.surf === key, disabled: busy(st), why:'Tunggu mobil berhenti dulu', onClick: st => setSurf(st, key) })) },
+    { label:'Beban', choices: st => [[false, 'Tanpa beban'], [true, '+200 g']].map(([on, label]) => ({ label, current: st.load === on, disabled: busy(st), why:'Tunggu mobil berhenti dulu', onClick: st => setLoad(st, on) })) },
+    { label:'Lepaskan!', onClick: st => release(st) },
+  ],
+  acts:{ lever: st => release(st), pad: st => { if (!busy(st) && st.phase !== 'ready') pullTo(st, st.pull); } },
+  params:(st, q) => {
+    if (SURF[q.get('surf')]) st.surf = q.get('surf');
+    if (q.get('load') === '1') st.load = true;
+    if (q.has('pull')){ const cm = +q.get('pull'); if (NOTCH.includes(cm)){ st.pull = cm; st.c = cm; st.phase = 'ready'; } }
+    if (q.has('s')){ st.s = Math.max(0, Math.min(TRACK_M, +q.get('s') || 0)); st.c = 0; st.phase = 'stop'; st.roll = st.s*100;
+      if (q.has('v')){ st.v = Math.max(0, +q.get('v') || 0); st.dir = q.get('dir') === '-1' ? -1 : 1; st.phase = 'pose'; } }
+    if (q.has('push')){ const cm = NOTCH.includes(+q.get('push')) ? +q.get('push') : 5; st.X = cm; st.c = cm*.6; st.phase = 'push'; st.trig = 1; st.frozen = true; }
+  },
+});
+xrMount(() => ui, () => '');
+</script><style>@media (max-width:560px),(pointer:coarse){#art{filter:none!important}.ctl:has(#wb){display:none!important}}</style><style>@media (max-width:560px){html body .kpad{width:100%;box-sizing:border-box;justify-content:space-between;gap:10px;margin:10px 0 0;padding:0;border:0;background:none;box-shadow:none}
+html body .kpad .dp{display:flex;gap:8px}html body .kpad .hub{display:none}
+html body .kpad .k{width:46px;height:42px;font-size:14px;border-radius:9px}
+html body .kpad .go{width:auto;height:42px;padding:0 26px;border-radius:999px;flex-direction:row;font-size:13px;box-shadow:0 3px 0 var(--ink),inset 0 -4px 0 rgba(0,0,0,.18)}
+html body .kpad .go small{display:none}html body .kpad .go.down{transform:translateY(2px);box-shadow:0 1px 0 var(--ink),inset 0 -2px 0 rgba(0,0,0,.18)}}</style>
+<script>requestAnimationFrame(() => { const o = { "◀": 0, "▲": 1, "▼": 2, "▶": 3 }; for (const k of document.querySelectorAll(".kpad .k")) k.style.order = o[k.textContent] ?? 0; });</script><style>@media (max-width:560px){.vset{margin:8px 0 2px!important}}</style><script>requestAnimationFrame(() => { const v = document.querySelector(".vset"), s = document.getElementById("stats"), z = document.querySelector(".zwrap"); if (!v) return; if (z && z.parentNode === v.parentNode){ const kp = document.querySelector(".kpad"); if (kp && innerWidth <= 560){ z.after(kp); kp.after(v); } else z.after(v); } else if (s && s.parentNode) s.parentNode.insertBefore(v, s); });</script><script>(() => { const fit = () => { const fig = document.getElementById("fig"); if (!fig) return;
+  fig.style.maxHeight = ""; if (innerWidth <= 560) return;
+  const extra = document.documentElement.scrollHeight - fig.clientHeight, room = innerHeight - extra - 12;
+  if (room < fig.clientHeight) fig.style.maxHeight = Math.max(320, room) + "px"; };
+  addEventListener("load", () => requestAnimationFrame(fit)); addEventListener("resize", fit); setTimeout(fit, 400); })();</script><style>.zwrap{position:relative}.zwrap.on{overflow:hidden}@media (min-width:561px){.zwrap.on{overflow:visible}html.zoomed,html.zoomed body{overflow:hidden}}.zwrap #fig{transform-origin:0 0}
+.zchip{position:absolute;right:2px;bottom:6px;display:flex;align-items:center;gap:2px;font:600 11px ui-monospace,Menlo,monospace;
+ background:rgba(242,239,231,.88);border:1px solid rgba(35,30,22,.25);border-radius:999px;padding:2px;z-index:3;user-select:none}
+.zchip button{all:unset;cursor:pointer;min-width:22px;height:22px;line-height:22px;text-align:center;border-radius:999px;color:#231e16}
+.zchip button:hover{background:rgba(35,30,22,.08)}.zchip .zp{min-width:44px}</style>
+<script>(() => { const fig = document.getElementById("fig"); if (!fig) return;
+  const wrap = document.createElement("div"); wrap.className = "zwrap"; fig.parentNode.insertBefore(wrap, fig); wrap.appendChild(fig);
+  const chip = document.createElement("div"); chip.className = "zchip";
+  chip.innerHTML = '<button class="zm" aria-label="Perkecil">−</button><button class="zp" aria-label="Ukuran awal">100%</button><button class="zi" aria-label="Perbesar">+</button>';
+  wrap.appendChild(chip);
+  let s = 1, tx = 0, ty = 0;
+  const box = () => ({ w: fig.clientWidth, h: fig.clientHeight });
+  const apply = () => { const { w, h } = box(); s = Math.min(5, Math.max(1, s));
+    if (s <= 1.001){ s = 1; tx = ty = 0; } else { tx = Math.min(0, Math.max(w - w*s, tx)); ty = Math.min(0, Math.max(h - h*s, ty)); }
+    fig.style.transform = s === 1 ? "" : `translate(${tx}px,${ty}px) scale(${s})`; wrap.classList.toggle("on", s > 1); document.documentElement.classList.toggle("zoomed", s > 1);   /* desktop: nothing is cut off, the page just does not scroll while zoomed */
+    chip.querySelector(".zp").textContent = Math.round(s*100) + "%"; grain(); };
+  // the paper grain is noise in drawing units: zoomed, it would blow up into blotches, so its frequency rises with the
+  // zoom and it stays the same fine grain on screen (the filter is rebuilt on resize, so this re-applies then too)
+  const grain = () => { const fl = document.getElementById("hand"); if (!fl) return;
+    const ts = [...fl.querySelectorAll("feTurbulence")]; if (!ts.length) return;
+    const g = ts.find(t => t.getAttribute("result") === "n1") || ts.reduce((a, b) => parseFloat(b.getAttribute("baseFrequency")) > parseFloat(a.getAttribute("baseFrequency")) ? b : a);
+    if (!g.dataset.f0) g.dataset.f0 = g.getAttribute("baseFrequency");
+    const v = (parseFloat(g.dataset.f0) * s).toFixed(4); if (g.getAttribute("baseFrequency") !== v) g.setAttribute("baseFrequency", v); };
+  const fd = document.getElementById("fdefs"); if (fd) new MutationObserver(() => grain()).observe(fd, { childList: true, subtree: true });
+  const zoomAt = (k, px, py) => { const s2 = Math.min(5, Math.max(1, s*k)); tx = px - (px - tx)*s2/s; ty = py - (py - ty)*s2/s; s = s2; apply(); };
+  const local = e => { const r = wrap.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  wrap.addEventListener("wheel", e => {
+    if (e.ctrlKey || e.metaKey){ e.preventDefault(); const [x, y] = local(e); zoomAt(Math.exp(-Math.max(-50, Math.min(50, e.deltaY))*.006), x, y);   /* a wheel notch ~1.35x, a pinch stays smooth */ }
+    else if (s > 1){ e.preventDefault(); tx -= e.deltaX; ty -= e.deltaY; apply(); } }, { passive: false });
+  const center = () => { const { w, h } = box(); return [w/2, h/2]; };
+  chip.querySelector(".zi").onclick = () => zoomAt(1.5, ...center());
+  chip.querySelector(".zm").onclick = () => zoomAt(1/1.5, ...center());
+  chip.querySelector(".zp").onclick = () => { s = 1; apply(); };
+  chip.addEventListener("pointerdown", e => e.stopPropagation());
+  // two fingers: pinch to zoom and move to pan; the figure's own one-finger turn waits while they are down
+  const pts = new Map(); let pinch = null;
+  const two = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x)/2, y: (a.y + b.y)/2 }; };
+  wrap.addEventListener("pointerdown", e => { if (e.pointerType !== "touch") return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2){ pinch = two(); e.stopPropagation(); } }, true);
+  wrap.addEventListener("pointermove", e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && pts.size === 2){ e.stopPropagation(); e.preventDefault(); const n = two(), r = wrap.getBoundingClientRect();
+      tx += n.x - pinch.x; ty += n.y - pinch.y; zoomAt(n.d / pinch.d, n.x - r.left, n.y - r.top); pinch = n; } }, true);
+  const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+  wrap.addEventListener("pointerup", up, true); wrap.addEventListener("pointercancel", up, true);
+  addEventListener("resize", apply);
+})();</script><style>.toast{position:absolute!important;left:50%!important;right:auto!important;top:6%!important;bottom:auto!important;z-index:4!important;
+  transform:translate(-50%,8px)!important;opacity:0!important;pointer-events:none!important;display:flex!important;align-items:center;gap:8px;
+  width:max-content;max-width:min(86%,440px);white-space:normal!important;font:600 12.5px/1.35 ui-monospace,Menlo,monospace!important;
+  letter-spacing:.01em!important;text-transform:none!important;color:#231e16!important;background:#fff1bf!important;
+  border:1px solid rgba(35,30,22,.28)!important;border-radius:8px!important;box-shadow:0 8px 22px rgba(35,30,22,.16)!important;
+  padding:7px 13px 7px 9px!important;transition:opacity .18s ease,transform .18s ease!important}
+.toast::before{content:"!";flex:none;width:17px;height:17px;border-radius:50%;background:#231e16;color:#fff1bf;font:800 11px/17px ui-monospace,Menlo,monospace;text-align:center}
+.toast.show{opacity:1!important;transform:translate(-50%,0)!important}</style>
+<script>(() => { const cap = () => { const t = document.getElementById("toast"); if (!t) return; const s = t.textContent;
+  if (s && s[0] !== s[0].toUpperCase()) t.textContent = s[0].toUpperCase() + s.slice(1); };
+  let seen = null; const watch = () => { const t = document.getElementById("toast"); if (!t || t === seen) return; seen = t;
+    const zw = document.querySelector(".zwrap"); if (zw && t.parentNode !== zw) zw.appendChild(t);   // sits on the figure itself
+    new MutationObserver(cap).observe(t, { childList: true, characterData: true, subtree: true }); cap(); };
+  watch(); const st = document.querySelector(".stage"); if (st) new MutationObserver(watch).observe(st, { childList: true }); })();</script><script>(() => { const fix = () => { const art = document.getElementById('art'); if (!art) return;
+    for (const el of art.querySelectorAll('[fill="#41538f" i]')){ let top = null, a = el.parentElement;
+      while (a && a !== art){ const o = a.getAttribute('opacity'); if (o !== null && +o < 1) top = a; a = a.parentElement; }
+      if (top) top.parentNode.insertBefore(el, top); } };
+  const go = () => { const art = document.getElementById('art'); if (!art) return setTimeout(go, 50); fix(); new MutationObserver(fix).observe(art, { childList: true }); };
+  if (document.readyState === 'loading') addEventListener('DOMContentLoaded', go); else go(); })();</script><style>.lgd{display:none}@media (max-width:560px){html:not(.nolabels) .lgd.has{display:grid}}
+.lgd{grid-template-columns:1fr 1fr;gap:2px 8px;margin:4px 0 12px;font:700 10.5px/1.25 ui-monospace,Menlo,monospace;letter-spacing:.03em;color:#231e16}
+.lgd button{all:unset;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px;border-radius:7px;-webkit-tap-highlight-color:transparent}
+.lgd b{flex:none;min-width:17px;height:17px;padding:0 3px;box-sizing:border-box;border-radius:999px;border:1.2px solid #231e16;background:#fff4d6;text-align:center;font:800 10px/15px ui-monospace,Menlo,monospace}
+.lgd .on b{background:var(--accent,#f4b829)}.lgd .sel{background:rgba(35,30,22,.09)}.lgd .sel b{background:#231e16;color:#fff4d6}</style>
+<script>(() => { const fig = document.getElementById("fig"); if (!fig) return;
+  const lg = document.createElement("div"); lg.className = "lgd"; const at = document.querySelector(".zwrap") || fig; at.parentNode.insertBefore(lg, at.nextSibling);
+  const hs = document.createElement("style"); document.head.appendChild(hs);
+  let sig = "", sel = 0, q = 0, names = "", num = new Map();
+  // the figure's own numbers count every label it has ever drawn; here they are reset to 1, 2, 3... down the left
+  // column then the right, each time the set of labels changes (so they hold still while the figure turns)
+  const renum = () => { if (innerWidth > 560) return; const gs = [...fig.querySelectorAll(".tag[data-t]")];
+    const key = gs.map(g => g.dataset.t).sort().join("|");
+    if (key !== names){ names = key; num = new Map(); const vb = fig.viewBox.baseVal, cx = vb.x + vb.width/2;
+      const at = g => { const r = g.querySelector("rect"); return r ? [+r.getAttribute("x") + r.getAttribute("width")/2, +r.getAttribute("y")] : [0, 0]; };
+      gs.map(g => [g.dataset.t, ...at(g)]).sort((a, b) => ((a[1] > cx) - (b[1] > cx)) || a[2] - b[2]).forEach(([t]) => { if (!num.has(t)) num.set(t, num.size + 1); }); }
+    for (const g of gs){ const n = String(num.get(g.dataset.t)); if (g.dataset.n !== n){ g.dataset.n = n; const t = g.querySelector("text"); if (t) t.textContent = n; } } };
+  const mark = () => { hs.textContent = sel ? `#fig .tag[data-n="${sel}"] rect{fill:#231e16!important}#fig .tag[data-n="${sel}"] text{fill:#fff4d6}#fig .tag[data-n="${sel}"] path{stroke-width:2.4}` : "";
+    for (const x of lg.children) x.classList.toggle("sel", +x.dataset.n === sel); };
+  const upd = () => { q = 0; const m = new Map();
+    if (innerWidth <= 560) for (const g of fig.querySelectorAll(".tag[data-n]")){ const n = +g.dataset.n; if (!m.has(n)) m.set(n, [g.dataset.t, g.classList.contains("on")]); }
+    const a = [...m].sort((x, y) => x[0] - y[0]), s = JSON.stringify(a); if (s === sig) return; sig = s;
+    lg.classList.toggle("has", a.length > 0);
+    lg.innerHTML = a.map(([n, [t, on]]) => `<button data-n="${n}" class="${on ? "on" : ""}"><b>${n}</b><span>${t}</span></button>`).join(""); mark(); };
+  lg.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; sel = sel === +b.dataset.n ? 0 : +b.dataset.n; mark(); });
+  new MutationObserver(() => { renum(); if (!q) q = requestAnimationFrame(upd); }).observe(fig, { childList: true, subtree: true }); renum();
+  addEventListener("resize", () => { if (!q) q = requestAnimationFrame(upd); }); upd(); })();</script></body></html>

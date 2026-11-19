@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mikroskop cahaya</title></head><body>
+<script src="core.js"></script>
+<script>
+/* Mikroskop cahaya monokuler sekolah dengan lampu LED (Bab 5, Klasifikasi Makhluk Hidup).
+   Satuan: 1 unit = 5 mm. x = kedalaman (depan = x besar), y = lebar (+y ke kiri layar), z = atas. Papan meja z = 0..3.
+
+   Cara kerja nyata (langkah percobaan):
+   1. Lampu LED di kaki dinyalakan: cahaya naik lewat lubang kaki -> kondensor (lensa pengumpul) + diafragma (atur banyak
+      cahaya) -> lubang meja preparat -> preparat di kaca -> lensa objektif -> tabung -> lensa okuler -> mata.
+   2. Kaca preparat diambil dari papan, diletakkan di meja preparat dan dijepit dua penjepit, bagian sampel tepat di atas lubang.
+   3. Revolver diputar sampai objektif 4x "klik" di sumbu optik (bidang pandang paling luas). Perbesaran total = okuler x objektif.
+   4. Makrometer (pemutar kasar) memutar pinion yang menggerakkan rak pada dudukan meja: meja naik cepat mendekati fokus.
+   5. Mikrometer (pemutar halus) menggeser meja sangat sedikit (sekitar 0,2 mm per putaran) sampai bayangan tajam.
+   6. Pindah ke 10x / 40x: objektif sekolah hampir parfokal, jadi cukup mikrometer. Pada 40x jarak kerja hanya 0,5 mm,
+      jadi makrometer tidak dipakai (lensa bisa menabrak kaca preparat).
+
+   Model angka (nyata, disederhanakan):
+   - okuler 10x, bidang pandang okuler 18 mm -> diameter bidang pandang = 18 mm / objektif (4,5 / 1,8 / 0,45 mm).
+   - jarak parfokal 45 mm; jarak kerja 4x 17 mm, 10x 7 mm, 40x 0,5 mm -> panjang objektif = 45 mm - jarak kerja.
+   - posisi meja (mm) yang tajam sedikit berbeda per objektif (14,0 / 14,3 / 14,45 mm): hampir parfokal.
+   - Fokus: |selisih| <= 0,02 mm Tajam, <= 0,6 mm Hampir, selebihnya Kabur. Kabur gambar sebanding akar(selisih / ruang tajam).
+   - ukuran sel: bawang merah ~320 x 90 um, sel daun Hydrilla ~64 x 28 um, Paramecium ~210 um.
+
+   Daftar bagian:
+   KAKI    badan kaki . rumah lampu LED + kaca . sakelar + lampu indikator . tulisan
+           (dalam) papan LED . chip LED . dudukan 3 baterai AA . tiga baterai . kabel merah/hitam . badan sakelar
+   LENGAN  lengan . kepala . dudukan meja (geser) . makrometer kiri/kanan (bergerigi) . mikrometer kiri/kanan
+           (dalam) poros makrometer . pinion . rak bergigi pada dudukan meja . kotak roda gigi halus x2 . bantalan x2
+   OPTIK   tabung . okuler 10x (badan, karet mata, lensa) . revolver . objektif 4x/10x/40x (cincin, badan, pita warna, ujung)
+           (dalam) lensa okuler (lensa medan + lensa mata) . diafragma medan okuler . sekat tabung . lensa depan + lensa
+           belakang tiap objektif . lensa kondensor x2 . bilah diafragma iris
+   MEJA    meja preparat + lubang . dua penjepit (tiang + per) . kondensor . cincin diafragma + tuas
+   MEJA LAB papan meja . kotak preparat . tiga kaca preparat (bawang merah, Hydrilla, air kolam) */
+
+const BH = 3, BRD = [0, 0, 56, 76];                        // papan meja
+const BTOP = boardTop(0, 0, 56, 76, BH, 5);
+const AX = 34, AY = 20;                                     // sumbu optik
+const MMU = .2;                                             // unit per mm
+const BASE = [8, 7, 46, 33], BZ1 = 9;                       // kaki
+const SZ0 = 21, STT = 1.2;                                  // bawah meja saat pos = 0, tebal meja
+const KN = [19.6, 15];                                      // poros makrometer (x, z)
+const OBJ = [
+  { n: 4,  wd: 17,  F: 14.0,  dof: .05,   col: '#e2483d', tipR: .8, bar: [1000, '1 mm'] },
+  { n: 10, wd: 7,   F: 14.3,  dof: .012,  col: '#f2c230', tipR: .7, bar: [500, '0,5 mm'] },
+  { n: 40, wd: 0.5, F: 14.45, dof: .0015, col: '#5aa9e6', tipR: .5, bar: [100, '0,1 mm'] },
+];
+const slideTopZ = pos => SZ0 + STT + .2 + pos*MMU;
+const ZM = slideTopZ(OBJ[0].F) + 45*MMU;                    // bidang pasang objektif aktif (jarak parfokal 45 mm)
+for (const o of OBJ) o.L = ZM - (slideTopZ(o.F) + o.wd*MMU);
+const TAU = 15*Math.PI/180, RU = [Math.cos(TAU), 0, Math.sin(TAU)], RW = [Math.sin(TAU), 0, -Math.cos(TAU)], RV = [0, 1, 0];
+const R0 = 2.6;
+const vadd = (a, b) => [a[0]+b[0], a[1]+b[1], a[2]+b[2]], vsc = (a, k) => a.map(v => v*k);
+const REVC = vadd([AX, AY, ZM], vsc(RU, R0));               // pusat bidang bawah revolver
+const REVT = vadd(REVC, vsc(RW, -2.6));                     // pusat atas revolver
+const HZ0 = REVT[2], HZ1 = HZ0 + 6.5;                       // kepala
+const ZEP = 66, ZTOP = 71.4;                                // dudukan okuler, puncak okuler
+const SPEC = {
+  bawang:   { label: 'Sel bawang merah', col: '#c8649c', fact: 'Sel bawang punya dinding sel dan inti: termasuk kingdom Plantae' },
+  hydrilla: { label: 'Daun Hydrilla',    col: '#4f9a3a', fact: 'Sel Hydrilla berdinding sel dan berkloroplas: kingdom Plantae' },
+  kolam:    { label: 'Air kolam',        col: '#9cc4b0', fact: 'Paramecium bersel satu dan berinti sejati: kingdom Protista' },
+};
+const SKEYS = Object.keys(SPEC);
+const SLIDE_HOME = k => [29 + 7*k, 50, BH];                 // kaca preparat di papan
+const SLIDE_STAGE = pos => [AX - 2.5, AY - 7.5, slideTopZ(pos) - .2];
+const PCBM = { l:'#4fa36a', m:'#2f8a4a', d:'#1d5f31' };
+const KNOBM = matOf('#45413c'), FINEM = matOf('#6a655d');
+
+/* ---------- helpers ---------- */
+const bx3 = (x0, y0, z0, x1, y1, z1) => [[x0, y0, z0], [x1, y1, z1]];
+const boxOfPts = (pts, e = .05) => [[0,1,2].map(i => Math.min(...pts.map(p => p[i])) - e), [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + e)];
+// pelat bertebal sepanjang y dengan profil cembung (u = x, v = z)
+function slabY(prof, y0, y1, m, sh = tone, w = 2.4){
+  const A = on(PY(y0), prof), B = on(PY(y1), prof);
+  let s = loft(A, B, n => sh(n, m));
+  if (facing([0,1,0])) s += fill(pd(B), sh([0,1,0], m)) + ink(pd(B), w*.65);
+  if (facing([0,-1,0])) s += fill(pd(A), sh([0,-1,0], m)) + ink(pd(A), w*.65);
+  return s + hullInk([...A, ...B], w);
+}
+const txTop = (x, y, z, str, size, col = INK) => `<text transform="${txM(P(x, y, z), Dv(0,-1,0), Dv(1,0,0))}" font-size="${size}" fill="${col}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800" letter-spacing=".06em">${str}</text>`;
+const gearUV = (cu, cv, ro, ri, n, a0) => { const o = [], s = 2*Math.PI/n;
+  for (let i = 0; i < n; i++) for (const [t, r] of [[0, ri], [.22, ro], [.5, ro], [.72, ri]]){ const a = a0 + (i + t)*s; o.push([cu + r*Math.cos(a), cv + r*Math.sin(a)]); }
+  return o; };
+const mkWire = (pts, col, w = .3) => { const d = pd(pts, false);
+  return { box: boxOfPts(pts, w), svg: `<path d="${d}" fill="none" stroke="${INK}" style="stroke-width:${f(2*w + .25)}" stroke-linejoin="round" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${col}" style="stroke-width:${f(2*w)}" stroke-linejoin="round" stroke-linecap="round"/>` }; };
+
+/* ---------- revolver + objektif ---------- */
+function objGeo(st){
+  return OBJ.map((o, i) => { const ph = st.rot + i*2*Math.PI/3, c = Math.cos(ph), s = Math.sin(ph);
+    const e = vadd(vsc(RU, c), vsc(RV, s));
+    return { o, i, m: vadd(REVC, vsc(e, R0)), d: norm(vadd(vsc(RW, Math.cos(TAU)), vsc(e, Math.sin(TAU)))) }; });
+}
+// seberapa tepat objektif ada di sumbu (1 = tepat, 0 = di antara dua posisi)
+function alignOf(st){ let best = 9;
+  for (let i = 0; i < 3; i++){ let a = ((st.rot + i*2*Math.PI/3 - Math.PI) % (2*Math.PI) + 3*Math.PI) % (2*Math.PI) - Math.PI; best = Math.min(best, Math.abs(a)); }
+  return Math.max(0, 1 - best/.12); }
+function objectiveSvg(g){
+  const { o, m, d } = g, at = t => vadd(m, vsc(d, t)), L = o.L;
+  let s = '';
+  s += rod(at(L - 2.2), at(L), 1.2, METAL, toneI, .9, o.tipR, 18);                // ujung (mengecil)
+  s += rod(at(.9), at(L - 2.2), 1.35, METAL, toneI, 1, 1.35, 20);                  // badan
+  s += rod(at(1.5), at(2.1), 1.42, matOf(o.col), toneI, .8, 1.42, 20);             // pita warna kode perbesaran
+  s += rod(at(0), at(.9), 1.55, matOf('#9aa2a6'), toneI, .9, 1.55, 20);             // cincin ulir
+  return s;
+}
+function revolverItem(st){
+  const gs = objGeo(st), parts = gs.map(g => ({ box: boxOfPts([g.m, vadd(g.m, vsc(g.d, g.o.L))], 1.6), svg: objectiveSvg(g) }));
+  const body = rod(REVT, REVC, 3.4, matOf('#c9cfd2'), tone, 1.6, 4.7, 32);
+  let knurl = '';
+  for (let i = 0; i < 24; i++){ const a = i/24*2*Math.PI, e = vadd(vsc(RU, Math.cos(a)), vsc(RV, Math.sin(a)));
+    if (!vis(e)) continue;
+    const p0 = vadd(REVC, vsc(e, 4.6)), p1 = vadd(REVC, vadd(vsc(e, 4.3), vsc(RW, -.9)));
+    knurl += line([vadd(p0, vsc(RW, -.15)), p1], .45); }
+  const all = [REVT, REVC, ...gs.flatMap(g => [g.m, vadd(g.m, vsc(g.d, g.o.L))])];
+  return { box: boxOfPts(all, 1.6), svg: act('rev', byDepth(parts) + body + knurl) };
+}
+
+/* ---------- mikroskop: bagian luar ---------- */
+const ARM_PROF = () => [[10, BZ1], [22, BZ1], [22, HZ0], [14, HZ0], [10, 27]];
+function knobItems(st){
+  const out = [], [kx, kz] = KN;
+  for (const sgn of [1, -1]){
+    const yc0 = sgn > 0 ? 24 : 16, yc1 = yc0 + sgn*1.4, yf1 = yc1 + sgn*1.6, capN = [0, sgn, 0];
+    const mark = (y, r, a, w) => facing(capN) ? line([[kx, y + sgn*.02, kz], [kx + r*Math.cos(a), y + sgn*.02, kz + r*Math.sin(a)]], w) : '';
+    const knurl = (ya, yb, r, a0, n) => { let s = ''; for (let i = 0; i < n; i++){ const a = a0 + i*2*Math.PI/n, nn = [Math.cos(a), 0, Math.sin(a)];
+      if (vis(nn)) s += line([[kx + r*nn[0], ya, kz + r*nn[2]], [kx + r*nn[0], yb, kz + r*nn[2]]], .45); } return s; };
+    const cA = sgn*st.cAng, fA = sgn*st.fAng;
+    const coarse = rod([kx, yc0, kz], [kx, yc1, kz], 3.2, KNOBM, tone, 1.3, 3.2, 32) + knurl(yc0 + sgn*.15, yc1 - sgn*.15, 3.21, cA, 18)
+      + mark(yc1, 2.6, cA + .6, .9);
+    const fine = rod([kx, yc1, kz], [kx, yf1, kz], 1.9, FINEM, tone, 1.1, 1.9, 24) + knurl(yc1 + sgn*.2, yf1 - sgn*.2, 1.91, fA, 12)
+      + mark(yf1, 1.5, fA, .8);
+    out.push({ box: [[kx - 3.2, Math.min(yc0, yc1), kz - 3.2], [kx + 3.2, Math.max(yc0, yc1), kz + 3.2]], svg: act('coarse', coarse) });
+    out.push({ box: [[kx - 1.9, Math.min(yc1, yf1), kz - 1.9], [kx + 1.9, Math.max(yc1, yf1), kz + 1.9]], svg: act('fine', fine) });
+  }
+  return out;
+}
+function slideSvg(o, type, lit){
+  const [x0, y0, z0] = o, z1 = z0 + .2;
+  let s = box(x0, y0, z0, x0 + 5, y0 + 15, z1, CLEAR, toneI, .6);
+  if (facing([0,0,1])){
+    s += shape(on(PZ(z1 + .01), rectUV(x0 + .2, y0 + 11.3, x0 + 4.8, y0 + 14.8)), '#f4f1ea', .4);
+    s += fill(pd(on(PZ(z1 + .02), rectUV(x0 + .8, y0 + 12.2, x0 + 4.2, y0 + 13.2))), SPEC[type].col);
+    const cs = on(PZ(z1 + .02), rectUV(x0 + .3, y0 + 5.3, x0 + 4.7, y0 + 9.7));
+    s += fill(pd(cs), '#e9f6f8', 'opacity=".7"');
+    const sp0 = on(PZ(z1 + .03), ellUV(x0 + 2.5, y0 + 7.5, 1.3, type === 'hydrilla' ? .7 : 1.4, 16));
+    s += fill(pd(sp0), lit ? mix(SPEC[type].col, '#fff6c8', .45) : SPEC[type].col, 'opacity=".85"') + ink(pd(cs), .35);
+  }
+  return s;
+}
+function microItems(st){
+  const it = [], m = st._m, sz = SZ0 + st.pos*MMU, top = sz + STT, g = st.glow;
+  // kaki + tulisan + sakelar
+  { const A = on(PZ(BH), rrUV(...BASE, 4)), B = on(PZ(BZ1), rrUV(...BASE, 4));
+    let s = loft(A, B, n => tone(n, m)) + fill(pd(B), tone([0,0,1], m)) + ink(pd(B), 1.6) + hullInk([...A, ...B], 2.6);
+    if (facing([0,1,0])) s += txY(27, 33.05, 5.2, 'MIKROSKOP', 1.9, mix(tone([0,1,0], m), '#000000', .5), 800);
+    if (facing([1,0,0])) s += tx(46.05, 15, 5.4, '40×–400×', 1.5, mix(tone([1,0,0], m), '#000000', .5), 800);
+    it.push({ box: bx3(8, 7, BH, 46, 33, BZ1), svg: s }); }
+  { let s = box(46, 24.6, 4.6, 46.7, 27.4, 7.4, DARK, toneI, .8);
+    const rz = st.lamp ? [6, 7.2] : [4.8, 6];
+    if (facing([1,0,0])) s += shape(on(PX(46.75), rectUV(24.9, rz[0], 27.1, rz[1])), '#2b2724', .5)
+      + shape(on(PX(46.75), ellUV(26, 8.1, .45, .45, 10)), st.lamp ? '#43c25c' : '#7d776c', .4);
+    it.push({ box: bx3(46, 24.6, 4.6, 46.8, 27.4, 8.6), svg: act('lamp', s) }); }
+  // lampu di kaki
+  { let s = '';
+    if (g > .01) s += fill(pd(on(PZ(BZ1 + .02), ellUV(AX, AY, 4.2, 4.2, 24))), '#fff0a0', `opacity="${f(.55*g)}"`);
+    s += cyl(AX, AY, BZ1, BZ1 + .8, 2.4, METAL, toneI, 1, 24);
+    s += fill(pd(on(PZ(BZ1 + .82), ellUV(AX, AY, 1.8, 1.8, 20))), g > .01 ? mix('#d8e6ea', '#fffbe0', g) : '#cfdde2') + ink(pd(on(PZ(BZ1 + .82), ellUV(AX, AY, 1.8, 1.8, 20))), .6);
+    it.push({ box: bx3(AX - 2.4, AY - 2.4, BZ1, AX + 2.4, AY + 2.4, BZ1 + .8), svg: s }); }
+  // berkas cahaya dari lampu ke kondensor (terlihat samar saat menyala)
+  if (g > .01){ const Rh = [CAM_R[0], CAM_R[1], 0], z0 = BZ1 + .85, z1 = sz - 4;
+    const q = [vadd([AX, AY, z0], vsc(Rh, -1.4)), vadd([AX, AY, z1], vsc(Rh, -2)), vadd([AX, AY, z1], vsc(Rh, 2)), vadd([AX, AY, z0], vsc(Rh, 1.4))];
+    it.push({ box: bx3(AX - 2, AY - 2, z0, AX + 2, AY + 2, z1), svg: fill(pd(q), '#ffe880', `opacity="${f(.32*g)}"`) }); }
+  // lengan + kepala
+  it.push({ box: bx3(10, 16, BZ1, 22, 24, HZ0), svg: slabY(ARM_PROF(), 16, 24, m) });
+  it.push({ box: bx3(13, 15.5, HZ0, 40, 24.5, HZ1), svg: slabY(rrUV(13, HZ0, 40, HZ1, 2.4), 15.5, 24.5, m) });
+  // tabung + okuler
+  { let s = cyl(AX, AY, HZ1, ZEP, 2.6, m, tone, 1.6, 28);
+    s += cyl(AX, AY, ZEP, ZEP + .5, 2.35, METAL, toneI, 1, 28) + cyl(AX, AY, ZEP + .5, ZTOP - 1.3, 2.0, DARK, tone, 1.2, 28);
+    s += cyl(AX, AY, ZTOP - 1.3, ZTOP, 2.2, matOf('#2d2a27'), tone, 1.2, 28);
+    const lens = on(PZ(ZTOP + .02), ellUV(AX, AY, 1.25, 1.25, 20));
+    s += fill(pd(lens), g > .01 && st.slide ? mix('#bcd6dd', '#fff4c4', .6*g) : '#9fc3cc') + ink(pd(lens), .5);
+    s += fill(pd(on(PZ(ZTOP + .03), ellUV(AX - .4, AY + .35, .35, .35, 10))), '#ffffff', 'opacity=".7"');
+    if (facing([1,0,0])) s += tx(AX + 2.05, AY, ZEP + 2.4, '10×', 1.25, '#e8e4da', 800);
+    it.push({ box: bx3(AX - 2.6, AY - 2.6, HZ1, AX + 2.6, AY + 2.6, ZTOP), svg: s }); }
+  // revolver + objektif
+  it.push(revolverItem(st));
+  // dudukan meja (geser naik turun di depan lengan) + meja preparat
+  it.push({ box: bx3(22, 16.5, sz - 10, 23.5, 23.5, sz + STT), svg: box(22, 16.5, sz - 10, 23.5, 23.5, sz + STT, DARK, tone, 1) });
+  // meja preparat + kaca preparat + dua penjepit: semuanya di atas permukaan meja, jadi urutannya tetap
+  { let s = box(23.5, 9, sz, 44.5, 31, top, DARK, tone, 1.4);
+    if (facing([0,0,1])){ const h = on(PZ(top + .01), ellUV(AX, AY, 1.5, 1.5, 20));
+      s += fill(pd(h), g > .01 ? mix('#16130f', '#fff1a6', g) : '#16130f') + ink(pd(h), .5);
+      for (const yy of [14, 26]) s += fill(pd(on(PZ(top + .01), ellUV(27, yy, .9, .9, 12))), '#55504a'); }
+    const onSlide = st.slide && st.tw >= 1;
+    if (onSlide) s += slideSvg(SLIDE_STAGE(st.pos), st.slide, g > .01);
+    const clips = [14, 26].map(yy => ({ box: bx3(26.4, yy - .6, top, 35.8, yy + .6, top + 1.1),
+      svg: cyl(27, yy, top, top + .8, .55, METAL, toneI, .8, 14) + rod([27, yy, top + .8], [35.5, yy, (onSlide ? top + .2 : top) + .35], .28, METAL, toneI, .7, .28, 10) }));
+    s += byDepth(clips);
+    it.push({ box: bx3(23.5, 9, sz, 44.5, 31, top + 1.1), svg: s }); }
+  // kondensor + cincin diafragma + tuas
+  { const s = cyl(AX, AY, sz - 4, sz - 3.3, 2.7, DARK, tone, 1, 28) + cyl(AX, AY, sz - 3.3, sz, 2.1, matOf('#b4bbbf'), tone, 1.1, 24);
+    it.push({ box: bx3(AX - 2.7, AY - 2.7, sz - 4, AX + 2.7, AY + 2.7, sz), svg: s });
+    it.push({ box: bx3(AX + 2.7, AY - .4, sz - 4, AX + 4.9, AY + 1.6, sz - 3.3), svg: rod([AX + 2.7, AY, sz - 3.65], [AX + 4.6, AY + 1.2, sz - 3.65], .28, DARK, toneI, .8) }); }
+  it.push(...knobItems(st));
+  return it;
+}
+
+/* ---------- tembus pandang: bagian dalam ---------- */
+function mechItems(st){
+  const it = [], put = (b, svg) => it.push({ box: b, svg }), sz = SZ0 + st.pos*MMU, top = sz + STT, on_ = st.lamp, g = st.glow;
+  const bxp = (x0, y0, z0, x1, y1, z1, M, w = .7, extra = '') => put(bx3(x0, y0, z0, x1, y1, z1), box(x0, y0, z0, x1, y1, z1, M, toneI, w) + extra);
+  // kaki: dudukan baterai + 3 baterai AA, papan LED + chip LED, badan sakelar, kabel
+  bxp(11.5, 14, BH + .2, 21.5, 26, BH + 1.1, DARK, .7);
+  for (const x of [13.5, 16.5, 19.5]){
+    put(bx3(x - 1.4, 15, BH + 1.1, x + 1.4, 25, BH + 3.9), rod([x, 15.6, BH + 2.5], [x, 25, BH + 2.5], 1.4, matOf('#3d7fc4'), toneI, .7, 1.4, 16)
+      + rod([x, 15, BH + 2.5], [x, 15.6, BH + 2.5], .5, METAL, toneI, .5, .5, 10)); }
+  bxp(30, 16, BZ1 - 1.1, 38, 24, BZ1 - .8, PCBM, .6);
+  put(bx3(AX - .9, AY - .9, BZ1 - .8, AX + .9, AY + .9, BZ1 + .5), cyl(AX, AY, BZ1 - .8, BZ1 + .5, .9, matOf(on_ ? '#fff4b8' : '#f2f0e6'), toneI, .7, 16)
+    + (g > .01 ? fill(pd(on(PZ(BZ1 + .52), ellUV(AX, AY, .6, .6, 12))), '#fffbe0') : ''));
+  bxp(44.6, 24.8, 4.8, 46, 27.2, 7.2, DARK, .6);
+  const red = on_ ? '#ff5a3a' : '#a8352a', blk = '#2d2a27';
+  it.push(mkWire([[21.5, 25, BH + 1.1], [30, 27.5, BH + .5], [44.6, 26.6, 5.2]], red));
+  it.push(mkWire([[44.6, 25.4, 6.8], [40, 24.4, BZ1 - 1.2], [37, 23, BZ1 - 1.1]], red));
+  it.push(mkWire([[31, 17, BZ1 - 1.1], [26, 13.5, BH + .6], [21.5, 15, BH + 1.1]], blk));
+  // lengan: poros makrometer, bantalan, pinion, rak pada dudukan meja, kotak roda gigi halus
+  const [kx, kz] = KN;
+  put(bx3(kx - .45, 16, kz - .45, kx + .45, 24, kz + .45), rod([kx, 16, kz], [kx, 24, kz], .45, METAL, toneI, .6, .45, 12));
+  for (const y of [16, 23.4]) put(bx3(kx - .9, y, kz - .9, kx + .9, y + .6, kz + .9), rod([kx, y, kz], [kx, y + .6, kz], .9, matOf('#d8b25a'), toneI, .6, .9, 14));
+  for (const [y0, y1] of [[16.6, 18.4], [21.6, 23.4]]) put(bx3(kx - 1.4, y0, kz - 1.4, kx + 1.4, y1, kz + 1.4), rod([kx, y0, kz], [kx, y1, kz], 1.4, matOf('#8f989b'), toneI, .7, 1.4, 18));
+  { const gr = gearUV(kx, kz, 1.6, 1.3, 12, -st.cAng), A = on(PY(19), gr), B = on(PY(21), gr);
+    let s = loft(A, B, n => toneI(n, matOf('#e0b04a')));
+    const cap = facing([0,1,0]) ? B : A;
+    s += fill(pd(cap), toneI(facing([0,1,0]) ? [0,1,0] : [0,-1,0], matOf('#e0b04a'))) + ink(pd(cap), .5) + hullInk([...A, ...B], .9);
+    put(bx3(kx - 1.6, 19, kz - 1.6, kx + 1.6, 21, kz + 1.6), s); }
+  { let s = box(21.2, 19.2, sz - 10, 22, 20.8, sz, matOf('#c9cfd2'), toneI, .6);
+    const ph = (st.pos*MMU) % .6;
+    for (let z = sz - 9.8 + ph - .6; z < sz - .2; z += .6) if (z > sz - 9.9) s += box(20.9, 19.2, z, 21.2, 20.8, z + .3, matOf('#c9cfd2'), toneI, .35);
+    put(bx3(20.9, 19.2, sz - 10, 22, 20.8, sz), s); }
+  // kondensor: diafragma iris + dua lensa
+  { const z = sz - 3.65, ap = .9, ring = on(PZ(z), ellUV(AX, AY, 2.5, 2.5, 28)), hole = on(PZ(z), ellUV(AX, AY, ap, ap, 20));
+    let s = `<path d="${pd(ring)} ${pd(hole)}" fill="#3a3632" fill-rule="evenodd"/>` + ink(pd(ring), .5) + ink(pd(hole), .4);
+    for (let i = 0; i < 8; i++){ const a = i/8*2*Math.PI; s += line([[AX + ap*Math.cos(a), AY + ap*Math.sin(a), z], [AX + 2.4*Math.cos(a + .7), AY + 2.4*Math.sin(a + .7), z]], .3); }
+    put(bx3(AX - 2.5, AY - 2.5, z - .05, AX + 2.5, AY + 2.5, z + .05), s); }
+  for (const [z0, z1, r] of [[sz - 2.6, sz - 2.1, 1.6], [sz - 1.1, sz - .5, 1.85]]) put(bx3(AX - r, AY - r, z0, AX + r, AY + r, z1), cyl(AX, AY, z0, z1, r, CLEAR, toneI, .6, 20));
+  // lensa di tiap objektif
+  for (const gg of objGeo(st)){ const { m, d, o } = gg, at = t => vadd(m, vsc(d, t));
+    for (const [t0, t1, r] of [[o.L - .55, o.L - .25, o.tipR*.7], [1.2, 1.6, 1.0]])
+      put(boxOfPts([at(t0), at(t1)], r), rod(at(t0), at(t1), r, CLEAR, toneI, .5, r, 14)); }
+  // tabung: sekat; okuler: lensa medan, diafragma medan, lensa mata
+  put(bx3(AX - 2.4, AY - 2.4, 55, AX + 2.4, AY + 2.4, 55.3), `<path d="${pd(on(PZ(55.15), ellUV(AX, AY, 2.4, 2.4, 24)))} ${pd(on(PZ(55.15), ellUV(AX, AY, 1.1, 1.1, 16)))}" fill="#3a3632" fill-rule="evenodd"/>`);
+  put(bx3(AX - 1.7, AY - 1.7, ZEP + .5, AX + 1.7, AY + 1.7, ZEP + 1), cyl(AX, AY, ZEP + .5, ZEP + 1, 1.7, CLEAR, toneI, .5, 20));
+  put(bx3(AX - 1.8, AY - 1.8, 68, AX + 1.8, AY + 1.8, 68.1), `<path d="${pd(on(PZ(68.05), ellUV(AX, AY, 1.8, 1.8, 20)))} ${pd(on(PZ(68.05), ellUV(AX, AY, .9, .9, 16)))}" fill="#3a3632" fill-rule="evenodd"/>`);
+  put(bx3(AX - 1.5, AY - 1.5, ZTOP - 1.1, AX + 1.5, AY + 1.5, ZTOP - .6), cyl(AX, AY, ZTOP - 1.1, ZTOP - .6, 1.5, CLEAR, toneI, .5, 20));
+  return it;
+}
+// lintasan cahaya: lampu -> kondensor -> preparat -> objektif -> tabung -> okuler (digambar di atas semua)
+function lightPath(st){
+  const sz = SZ0 + st.pos*MMU, act0 = objGeo(st).find(gg => Math.abs(gg.d[2] + 1) < .01), tip = act0 ? act0.m[2] - act0.o.L : ZM - 6;
+  const al = alignOf(st), zr = [[BZ1 + .85, 1.1], [sz - 4, 1.8], [sz - .5, 1.7], [slideTopZ(st.pos), .15]];
+  if (al > .5) zr.push([tip, .55], [ZM, .9], [60, .6], [68, .12], [ZTOP - .8, 1.1], [ZTOP + 1.2, .3]);
+  else zr.push([slideTopZ(st.pos) + 2, .8]);
+  const Rh = [CAM_R[0], CAM_R[1], 0], Lp = zr.map(([z, r]) => vadd([AX, AY, z], vsc(Rh, -r))), Rp = zr.map(([z, r]) => vadd([AX, AY, z], vsc(Rh, r))).reverse();
+  const cl = pd(zr.map(([z]) => [AX, AY, z]), false), g = st.glow;
+  if (g < .02) return `<path d="${cl}" fill="none" stroke="#c9a23a" style="stroke-width:${f(.35)}" opacity=".55"/>`;
+  let s = fill(pd([...Lp, ...Rp]), '#ffd84a', `opacity="${f(.4*g)}"`)
+    + `<path d="${cl}" fill="none" stroke="#f4b400" style="stroke-width:${f(.45)}" opacity="${f(g)}"/>`;
+  for (const [z] of zr.slice(0, -1)){ const p = P(AX, AY, z + 1.2), q = P(AX, AY, z + .3), dx = 1.2*INK_K;
+    s += `<path d="M${f(q[0] - dx)} ${f(q[1] + dx*.4)}L${f(p[0])} ${f(p[1])}L${f(q[0] + dx)} ${f(q[1] + dx*.4)}" fill="none" stroke="#e09a00" stroke-width=".9" opacity="${f(g)}"/>`; }
+  return s;
+}
+
+/* ---------- lingkaran bidang pandang (2D, di pojok kiri bawah) ---------- */
+function rnd(seed){ let s = seed; return () => (s = (s*16807) % 2147483647) / 2147483647; }
+const POND = (() => { const r = rnd(7), dots = [], dia = [];
+  for (let i = 0; i < 70; i++) dots.push([(r() - .5)*4600, (r() - .5)*4600, 5 + 6*r()]);
+  for (let i = 0; i < 9; i++) dia.push([(r() - .5)*4000, (r() - .5)*4000, r()*180]);
+  dots.push([60, -140, 8], [-120, 90, 7], [150, 120, 9], [-60, -60, 6]); dia.push([-150, -150, 30]);
+  return { dots, dia }; })();
+function paramecium(){
+  let s = `<path d="M-105,0 C-105,-30 -20,-34 60,-26 C100,-22 112,-8 108,4 C104,18 80,26 40,24 C10,22 0,34 -40,30 C-80,28 -105,18 -105,0Z" fill="#ece5c9" stroke="#6b5b3a" style="stroke-width:3"/>`;
+  let cil = '';
+  for (let i = 0; i < 44; i++){ const t = i/44*2*Math.PI, x = 106*Math.cos(t), y = 29*Math.sin(t), nx = Math.cos(t)/106, ny = Math.sin(t)/29, l = Math.hypot(nx, ny);
+    cil += `M${f(x)},${f(y)}l${f(9*nx/l)},${f(9*ny/l)}`; }
+  s += `<path d="${cil}" stroke="#8b7b5a" style="stroke-width:1.6" fill="none"/>`;
+  s += `<path d="M8,22 C28,8 52,6 66,12" fill="none" stroke="#8b7b5a" style="stroke-width:2.4"/>`;
+  s += `<ellipse cx="-6" cy="0" rx="22" ry="13" fill="#cdbf97" stroke="#7d6b45" style="stroke-width:1.6"/><circle cx="16" cy="-7" r="4" fill="#9d8a5e"/>`;
+  for (const [x, y] of [[-66, -6], [62, -4]]){ s += `<circle cx="${x}" cy="${y}" r="7" fill="#f8fbff" stroke="#7fa6bf" style="stroke-width:1.6"/>`;
+    let c = ''; for (let i = 0; i < 6; i++){ const a = i/6*2*Math.PI; c += `M${f(x + 7*Math.cos(a))},${f(y + 7*Math.sin(a))}l${f(9*Math.cos(a))},${f(9*Math.sin(a))}`; }
+    s += `<path d="${c}" stroke="#a9c6d8" style="stroke-width:1.4" fill="none"/>`; }
+  for (const [x, y, r] of [[-38, 10, 5], [30, -12, 6], [-80, 8, 4], [44, 10, 4.5], [-30, -16, 4]]) s += `<circle cx="${x}" cy="${y}" r="${r}" fill="#d9c79c" stroke="#a48c5c" style="stroke-width:1"/>`;
+  return s;
+}
+function specimen(type){
+  if (type === 'bawang'){
+    return `<defs><pattern id="ocOn" width="320" height="180" patternUnits="userSpaceOnUse" patternTransform="rotate(-8)">`
+      + `<rect x="0" y="0" width="320" height="90" fill="#efb6d4" stroke="#8c3f6c" style="stroke-width:5"/>`
+      + `<rect x="-160" y="90" width="320" height="90" fill="#eaa9cb" stroke="#8c3f6c" style="stroke-width:5"/><rect x="160" y="90" width="320" height="90" fill="#f0bcd7" stroke="#8c3f6c" style="stroke-width:5"/>`
+      + `<ellipse cx="118" cy="44" rx="13" ry="10" fill="#7b2f5c"/><ellipse cx="52" cy="136" rx="12" ry="10" fill="#7b2f5c"/><ellipse cx="236" cy="128" rx="13" ry="10" fill="#7b2f5c"/>`
+      + `<circle cx="114" cy="42" r="3" fill="#e9b5d0"/><circle cx="48" cy="134" r="3" fill="#e9b5d0"/><circle cx="232" cy="126" r="3" fill="#e9b5d0"/></pattern></defs>`
+      + `<rect x="-2600" y="-2600" width="5200" height="5200" fill="url(#ocOn)"/>`
+      + `<path d="M-2600,1500 C-1200,1250 -200,1700 900,1350 C1700,1100 2200,1300 2600,1200 L2600,2600 L-2600,2600Z" fill="#f6efe4" stroke="#b48aa2" style="stroke-width:8"/>`;
+  }
+  if (type === 'hydrilla'){
+    const pts = [];
+    for (let x = -4200; x <= 1500; x += 60){ const w = x < 0 ? 560 : 560*(1 - (x/1500)**2), t = x > -4200 && x < 1500 ? ((x/60) % 2 ? 0 : 1) : 0;
+      pts.push([x + (t ? 30 : 0), -(w + (x > -1500 ? t*40 : 0))]); }
+    const top = pts.map(([x, y]) => `${f(x)},${f(y)}`).join(' L'), bot = pts.slice().reverse().map(([x, y]) => `${f(x)},${f(-y)}`).join(' L');
+    const leaf = `M${top} L${bot}Z`;
+    let chl = '';
+    for (const [x, y] of [[8, 5], [20, 4.5], [33, 5], [46, 4.5], [57, 6], [9, 23], [22, 23.5], [36, 23], [50, 23.5], [58, 14], [6, 14], [30, 14]])
+      chl += `<ellipse cx="${x}" cy="${y}" rx="3.4" ry="2.5" fill="#3d8c2c"/>`;
+    return `<defs><pattern id="ocHy" width="64" height="28" patternUnits="userSpaceOnUse"><rect x="0" y="0" width="64" height="28" fill="#d5ecb2" stroke="#5d8a3a" style="stroke-width:2.6"/>${chl}</pattern>`
+      + `<pattern id="ocHm" width="150" height="26" patternUnits="userSpaceOnUse"><rect x="0" y="0" width="150" height="13" fill="#c6e09c" stroke="#5d8a3a" style="stroke-width:2.2"/><rect x="-75" y="13" width="150" height="13" fill="#c2dd96" stroke="#5d8a3a" style="stroke-width:2.2"/><rect x="75" y="13" width="150" height="13" fill="#c9e2a2" stroke="#5d8a3a" style="stroke-width:2.2"/></pattern>`
+      + `<clipPath id="ocLeaf"><path d="${leaf}"/></clipPath></defs>`
+      + `<g transform="translate(0 260) rotate(-28)"><path d="${leaf}" fill="#d9edb8" stroke="#4d7a2e" style="stroke-width:7"/>`
+      + `<g clip-path="url(#ocLeaf)"><rect x="-4300" y="-700" width="6000" height="1400" fill="url(#ocHy)"/><rect x="-4300" y="-70" width="6000" height="140" fill="url(#ocHm)"/></g></g>`;
+  }
+  // air kolam: Spirogyra, Chlorella, diatom, dua Paramecium yang berenang
+  let s = '';
+  { let cells = ''; for (let x = -2700; x < 2700; x += 90){
+      cells += `<rect x="${x}" y="-20" width="90" height="40" fill="#d8efc4" stroke="#4e8a36" style="stroke-width:3"/>`;
+      let z = `M${x + 4},-14`; for (let k = 1; k <= 6; k++) z += ` L${x + 4 + k*14},${k % 2 ? 14 : -14}`;
+      cells += `<path d="${z}" fill="none" stroke="#3d8c2c" style="stroke-width:7" stroke-linecap="round"/>`; }
+    s += `<g transform="translate(0 420) rotate(-9)">${cells}</g>`; }
+  for (const [x, y, r] of POND.dots) s += `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r)}" fill="#6fb24f" stroke="#3d7a2a" style="stroke-width:1"/>`;
+  for (const [x, y, a] of POND.dia) s += `<g transform="translate(${f(x)} ${f(y)}) rotate(${f(a)})"><ellipse rx="36" ry="8" fill="#e8d9a2" stroke="#8a7440" style="stroke-width:1.6"/><path d="M-26,-5 L-26,5 M-14,-7 L-14,7 M0,-8 L0,8 M14,-7 L14,7 M26,-5 L26,5" stroke="#a89058" style="stroke-width:1"/></g>`;
+  const pa = paramecium();
+  s += `<g>${pa}<animateMotion dur="18s" repeatCount="indefinite" rotate="auto" path="M-150,40 C-60,-120 120,-140 170,-20 C200,80 60,170 -60,120 C-160,90 -220,120 -150,40Z"/></g>`;
+  s += `<g>${pa}<animateMotion dur="42s" repeatCount="indefinite" rotate="auto" path="M-1300,-600 C-300,-1500 1200,-1200 1300,-100 C1350,900 300,1400 -600,1100 C-1500,800 -1700,0 -1300,-600Z"/></g>`;
+  return s;
+}
+function ocularPanel(st){
+  const vb = document.getElementById('fig').viewBox.baseVal;
+  const R = Math.min(vb.width, vb.height)*.145, cx = vb.x + R*1.2, cy = vb.height > vb.width*.9 ? vb.y + R*1.45 : vb.y + vb.height - R*1.12;   // HP: bingkai lebih tinggi, lingkaran di kiri atas yang kosong
+  const o = OBJ[st.obj], k = 2*R/(18000/o.n), al = alignOf(st), bright = st.glow*al;
+  const d = Math.abs(st.pos - o.F), bl = st.slide ? Math.min(.14, .02*Math.sqrt(d/o.dof))*R : 0;
+  const fade = st.slide ? Math.min(.65, bl/(.14*R)*.65) : 0;
+  let s = `<defs><clipPath id="ocClip"><circle cx="${f(cx)}" cy="${f(cy)}" r="${f(R)}"/></clipPath>`
+    + (bl > .01 ? `<filter id="ocBlur" filterUnits="userSpaceOnUse" x="${f(cx - R)}" y="${f(cy - R)}" width="${f(2*R)}" height="${f(2*R)}"><feGaussianBlur stdDeviation="${(bl).toFixed(2)}"/></filter>` : '') + `</defs>`;
+  s += `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(R*1.09)}" fill="#3d3935" stroke="${INK}" style="stroke-width:${f(R*.035)}"/>`;
+  let inner = `<rect x="${f(cx - R)}" y="${f(cy - R)}" width="${f(2*R)}" height="${f(2*R)}" fill="#fbf6e2"/>`;
+  // isi preparat dimasukkan ke pattern seukuran lingkaran: gambarnya terpotong di tepi lensa dan tidak membesarkan kotak gambar
+  if (st.slide && st.tw >= 1 && bright > .05) inner += `<defs><pattern id="ocSpec" patternUnits="userSpaceOnUse" x="${f(cx - R)}" y="${f(cy - R)}" width="${f(2*R)}" height="${f(2*R)}"><g transform="translate(${f(R)} ${f(R)}) scale(${(k).toFixed(5)})">${specimen(st.slide)}</g></pattern></defs>`
+    + `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(R)}" fill="url(#ocSpec)" ${bl > .01 ? 'filter="url(#ocBlur)"' : ''} opacity="${f(1 - fade)}"/>`;
+  inner += `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(R*.97)}" fill="none" stroke="#2a2622" stroke-opacity=".28" style="stroke-width:${f(R*.08)}"/>`;
+  if (bright < .999) inner += `<rect x="${f(cx - R)}" y="${f(cy - R)}" width="${f(2*R)}" height="${f(2*R)}" fill="#0d0b09" opacity="${f(.96*(1 - bright))}"/>`;
+  s += `<g clip-path="url(#ocClip)">${inner}</g>`;
+  s += `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(R)}" fill="none" stroke="${INK}" style="stroke-width:${f(R*.045)}"/>`;
+  s += `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(R*1.09)}" fill="none" stroke="#6a655d" style="stroke-width:${f(R*.012)}" opacity=".9"/>`;
+  // garis skala (terlihat saat terang)
+  if (bright > .3 && st.slide){ const [um, txt] = o.bar, w = um*k, y = cy + R*.72, x0 = cx - w/2;
+    s += `<g opacity="${f(bright)}"><rect x="${f(x0 - R*.05)}" y="${f(y - R*.17)}" width="${f(w + R*.1)}" height="${f(R*.24)}" rx="${f(R*.05)}" fill="#fbf6e2" opacity=".8"/>`
+      + `<path d="M${f(x0)} ${f(y)}H${f(x0 + w)}M${f(x0)} ${f(y - R*.035)}V${f(y + R*.035)}M${f(x0 + w)} ${f(y - R*.035)}V${f(y + R*.035)}" stroke="${INK}" style="stroke-width:${f(R*.022)}"/>`
+      + `<text x="${f(cx)}" y="${f(y - R*.045)}" font-size="${f(R*.1)}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800" fill="${INK}">${txt}</text></g>`; }
+  const fs = R*.105;
+  s += `<text x="${f(cx)}" y="${f(cy - R*1.2)}" font-size="${f(fs)}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800" letter-spacing=".06em" fill="${INK}">TERLIHAT DI OKULER</text>`;
+  return s;
+}
+
+/* ---------- papan meja: kotak preparat + kaca preparat ---------- */
+function benchItems(st){
+  const it = [];
+  { let s = box(6, 52, BH, 22, 72, BH + 3, WOOD, toneI, 1.2) + box(5.7, 51.7, BH + 3, 22.3, 72.3, BH + 4.2, matOf('#d9a86c'), toneI, 1.3);
+    if (facing([0,0,1])) s += txTop(14, 62, BH + 4.22, 'PREPARAT', 1.9, '#6b4a26');
+    it.push({ box: bx3(5.7, 51.7, BH, 22.3, 72.3, BH + 4.2), svg: s }); }
+  SKEYS.forEach((key, i) => { if (st.slide === key) return; const o = SLIDE_HOME(i);
+    it.push({ box: bx3(o[0], o[1], o[2], o[0] + 5, o[1] + 15, o[2] + .2), svg: act('slide' + i, slideSvg(o, key, false)) }); });
+  // kaca yang sedang dipindah dari papan ke meja preparat
+  if (st.slide && st.tw < 1){ const k = ease(st.tw), a = SLIDE_HOME(SKEYS.indexOf(st.slide)), b = SLIDE_STAGE(st.pos);
+    const o = [a[0] + (b[0] - a[0])*k, a[1] + (b[1] - a[1])*k, a[2] + (b[2] - a[2])*k + 9*Math.sin(Math.PI*k)];
+    it.push({ box: bx3(o[0], o[1], o[2], o[0] + 5, o[1] + 15, o[2] + .2), svg: slideSvg(o, st.slide, false), late: true }); }
+  return it;
+}
+
+/* ---------- label ---------- */
+const XB = [8, 46, 7, 33, 0, ZTOP];
+function labelItems(st, inside){
+  const sz = SZ0 + st.pos*MMU, top = sz + STT, act0 = objGeo(st).find(gg => Math.abs(gg.d[2] + 1) < .01) || objGeo(st)[0];
+  const mv = st.busy === 'stage', rev = st.busy === 'rev';
+  const lb = [
+    { at: [AX, AY + 2.1, ZTOP - 2], text: 'OKULER', on: st.glow > .5 && !!st.slide },
+    { at: [AX, AY + 2.6, 58], text: 'TABUNG', on: false },
+    { at: vadd(REVC, vsc(RU, 3.5)), text: 'REVOLVER', on: rev },
+    { at: vadd(act0.m, vsc(act0.d, act0.o.L*.6)), text: 'LENSA OBJEKTIF', on: rev },
+    { at: [44.5, 30, top], text: 'MEJA PREPARAT', on: mv },
+    { at: [33, 26, top + .5], text: 'PENJEPIT', on: st.tw < 1 },
+    { at: [AX, AY + 2.1, sz - 1.5], text: 'KONDENSOR', on: st.glow > .5 },
+    { at: [AX + 4.6, AY + 1.2, sz - 3.65], text: 'DIAFRAGMA', on: false },
+    { at: [AX, AY + 2.4, BZ1 + .5], text: 'LAMPU', on: st.lamp },
+    { at: [KN[0], 25.4, KN[1] + 2.4], text: 'MAKROMETER', on: mv && st.knob === 'c' },
+    { at: [KN[0], 27, KN[1] - 1], text: 'MIKROMETER', on: mv && st.knob === 'f' },
+    { at: [16, 24, 30], text: 'LENGAN', on: false },
+    { at: [40, 33, 6], text: 'KAKI', on: false },
+  ];
+  if (inside) lb.push({ at: [21, 20, sz - 6], text: 'RAK', on: mv && st.knob === 'c' }, { at: [KN[0], 21, KN[1] + 1.4], text: 'PINION', on: mv && st.knob === 'c' });
+  return lb;
+}
+
+/* ---------- adegan ---------- */
+function scene(st, m){
+  st._m = m;
+  const kx = ease(st.xr || 0);
+  let s = board(...BRD, BH, 5);
+  // bayangan: mikroskop (kaki sampai okuler) + kotak preparat
+  const sh = [];
+  for (const x of [8, 46]) for (const y of [7, 33]) sh.push([x, y, BH], [x, y, BZ1]);
+  for (const x of [10, 22]) for (const y of [16, 24]) sh.push([x, y, HZ0]);
+  for (const x of [23.5, 44.5]) for (const y of [9, 31]) sh.push([x, y, SZ0 + st.pos*MMU + STT]);
+  for (const [x, y] of ellUV(AX, AY, 2.6, 2.6, 10)) sh.push([x, y, ZTOP]);
+  s += castShadow(sh, BH, BTOP);
+  const bs = []; for (const x of [5.7, 22.3]) for (const y of [51.7, 72.3]) bs.push([x, y, BH], [x, y, BH + 4.2]);
+  s += castShadow(bs, BH, BTOP);
+  // mikroskop sebagai satu kesatuan (bagian-bagiannya diurutkan sendiri)
+  let mic = byDepth(microItems(st));
+  if (kx > 0){
+    const keep = [...knobItems(st)];
+    if (st.slide && st.tw >= 1){ const o = SLIDE_STAGE(st.pos); keep.push({ box: bx3(o[0], o[1], o[2], o[0] + 5, o[1] + 15, o[2] + .2), svg: slideSvg(o, st.slide, st.glow > .01) }); }
+    mic = `<g opacity="${f(1 - .72*kx)}">${mic}</g><g opacity="${f(kx)}">${byDepth([...mechItems(st), ...keep])}${lightPath(st)}</g>`;
+  }
+  const bench = benchItems(st), late = bench.filter(p => p.late);
+  s += byDepth([...bench.filter(p => !p.late), { box: bx3(8, 7, BH, 46, 33, ZTOP), svg: mic }]) + late.map(p => p.svg).join('');
+  s += ocularPanel(st);
+  s += xrCallouts(labelItems(st, kx > .6).filter(l => kx > .6 || !['RAK', 'PINION'].includes(l.text)), XB);
+  return s;
+}
+
+/* ---------- perilaku ---------- */
+let ui;
+const OBJ_ROT = i => Math.PI - i*2*Math.PI/3;
+const focusWord = st => { if (!st.slide) return '—'; const d = Math.abs(st.pos - OBJ[st.obj].F); return d <= .02 ? 'Tajam' : d <= .6 ? 'Hampir' : 'Kabur'; };
+function tween(st, key, to, ms, done){
+  const from = st[key]; let t = 0;
+  ui.animate(dt => { t += dt*1000; const k = Math.min(1, t/ms); st[key] = from + (to - from)*ease(k); if (k >= 1){ if (done) done(); return false; } return true; });
+}
+function toggleLamp(st){
+  st.lamp = !st.lamp;
+  ui.flash(st.lamp ? 'Lampu LED menyala: cahaya naik lewat kondensor menembus preparat' : 'Lampu dimatikan: bidang pandang menjadi gelap', 2400);
+  if (st.fading) return; st.fading = true;
+  ui.animate(dt => { const goal = st.lamp ? 1 : 0; st.glow += Math.sign(goal - st.glow)*Math.min(Math.abs(goal - st.glow), dt/.35);
+    if (st.glow === goal){ st.fading = false; return false; } return true; });
+}
+function mountSlide(st, key){
+  if (st.busy) return ui.flash('Tunggu sebentar, mikroskop masih bergerak');
+  if (st.slide === key) return ui.flash('Preparat ini sudah terpasang di meja');
+  st.slide = key; st.tw = 0; st.busy = 'slide';
+  tween(st, 'tw', 1, 900, () => { st.busy = '';
+    if (st.obj !== 0) ui.flash('Mulailah dari objektif 4×: bidang pandangnya paling luas', 2800);
+    else if (!st.lamp) ui.flash('Preparat dijepit penjepit. Nyalakan lampu agar terlihat', 2600);
+    else ui.flash('Preparat dijepit di atas lubang meja. Putar makrometer untuk mencari fokus', 2800); });
+}
+function setObj(st, i){
+  if (st.busy) return ui.flash('Tunggu sebentar, mikroskop masih bergerak');
+  if (st.obj === i) return ui.flash(`Objektif ${OBJ[i].n}× sudah di sumbu cahaya`);
+  const far = st.slide && Math.abs(st.pos - OBJ[0].F) > .6 && i > 0;
+  st.obj = i; st.busy = 'rev';
+  let to = OBJ_ROT(i); while (to - st.rot > Math.PI) to -= 2*Math.PI; while (st.rot - to > Math.PI) to += 2*Math.PI;
+  tween(st, 'rot', to, 800, () => { st.busy = ''; });
+  const n = OBJ[i].n;
+  ui.flash(far ? `Sebaiknya fokus dulu dengan 4×. Perbesaran total = 10 × ${n} = ${10*n}×` : `Perbesaran total = okuler × objektif = 10 × ${n} = ${10*n}×`, 2800);
+}
+function moveStage(st, to, knob, ms, done){
+  const d = to - st.pos; st.busy = 'stage'; st.knob = knob;
+  const c0 = st.cAng, f0 = st.fAng, p0 = st.pos; let t = 0;
+  ui.animate(dt => { t += dt*1000; const k = Math.min(1, t/ms), e = ease(k);
+    st.pos = p0 + d*e; st.cAng = c0 + d*e/8; if (knob === 'f') st.fAng = f0 + d*e*2*Math.PI/.2;
+    if (k >= 1){ st.busy = ''; st.knob = ''; if (done) done(); return false; } return true; });
+}
+function coarse(st){
+  if (st.busy) return ui.flash('Tunggu sebentar, mikroskop masih bergerak');
+  if (!st.slide) return ui.flash('Pasang preparat dulu di meja preparat');
+  const o = OBJ[st.obj], d = st.pos - o.F;
+  if (Math.abs(d) <= .6) return ui.flash('Sudah hampir fokus. Lanjutkan dengan mikrometer');
+  if (st.obj === 2) return ui.flash('Pada 40× jangan pakai makrometer: lensa bisa menabrak kaca preparat', 3000);
+  const to = o.F - .15;
+  moveStage(st, to, 'c', Math.max(700, Math.min(2200, Math.abs(to - st.pos)*130)), () =>
+    ui.flash(st.lamp ? 'Fokus kasar didapat. Putar mikrometer untuk penajaman akhir' : 'Fokus kasar didapat, tetapi lampu masih mati', 2600));
+}
+function fine(st){
+  if (st.busy) return ui.flash('Tunggu sebentar, mikroskop masih bergerak');
+  if (!st.slide) return ui.flash('Pasang preparat dulu di meja preparat');
+  const o = OBJ[st.obj], d = o.F - st.pos;
+  if (Math.abs(d) <= .02) return ui.flash('Bayangan sudah tajam');
+  if (Math.abs(d) > .6){ moveStage(st, st.pos + Math.sign(d)*.2, 'f', 700);
+    return ui.flash('Mikrometer hanya menggeser sedikit: cari fokus dengan makrometer dulu', 2800); }
+  moveStage(st, o.F, 'f', 900, () => {
+    if (!st.lamp) return ui.flash('Fokus tajam, tetapi lampu mati: nyalakan lampu', 2600);
+    ui.flash(SPEC[st.slide].fact, 3200);
+    if (st.slide === 'kolam' && !st.toldSlow){ st.toldSlow = true; setTimeout(() => ui.flash('Ilustrasi: gerak Paramecium diperlambat agar mudah diamati', 2800), 3400); }
+  });
+}
+
+ui = mountFigure({
+  fig: '5', turn: 'full', title: 'Mikroskop cahaya',
+  size: [56, 76, ZTOP], palette: 'cobalt',
+  state: { lamp: false, glow: 0, fading: false, slide: null, tw: 1, obj: 0, rot: OBJ_ROT(0), pos: 0, cAng: 0, fAng: 0, busy: '', knob: '', toldSlow: false },
+  scene,
+  readout: st => `${st.lamp ? 'lampu nyala' : 'lampu mati'} · ${st.slide ? SPEC[st.slide].label : 'tanpa preparat'} · ${10*OBJ[st.obj].n}× · ${focusWord(st)}`,
+  stats: st => [{ label: 'Perbesaran', value: `${10*OBJ[st.obj].n}×` }, { label: 'Fokus', value: focusWord(st), small: true }],
+  buttons: [
+    { label: 'Nyalakan lampu', onClick: st => toggleLamp(st) },
+    { label: 'Pasang preparat', choices: st => SKEYS.map(key => ({ label: SPEC[key].label, onClick: st => mountSlide(st, key) })) },
+    { label: 'Lensa objektif', choices: st => OBJ.map((o, i) => ({ label: `${o.n}×`, onClick: st => setObj(st, i) })) },
+    { label: 'Putar makrometer', onClick: st => coarse(st) },
+    { label: 'Putar mikrometer', onClick: st => fine(st) },
+  ],
+  acts: { lamp: st => toggleLamp(st), coarse: st => coarse(st), fine: st => fine(st), rev: st => setObj(st, (st.obj + 1) % 3),
+    slide0: st => mountSlide(st, SKEYS[0]), slide1: st => mountSlide(st, SKEYS[1]), slide2: st => mountSlide(st, SKEYS[2]) },
+  params: (st, q) => {
+    if (q.get('lamp') === '1'){ st.lamp = true; st.glow = 1; }
+    if (SPEC[q.get('slide')]) st.slide = q.get('slide');
+    const oi = OBJ.findIndex(o => String(o.n) === q.get('obj')); if (oi >= 0){ st.obj = oi; st.rot = OBJ_ROT(oi); }
+    if (q.has('pos')) st.pos = Math.max(0, Math.min(15, +q.get('pos') || 0));
+    if (q.get('focus') === '1') st.pos = OBJ[st.obj].F;
+    if (q.get('near') === '1') st.pos = OBJ[st.obj].F - .15;
+    if (q.has('rot')) st.rot = +q.get('rot');
+  },
+});
+xrMount(() => ui, () => '');
+</script></body></html>

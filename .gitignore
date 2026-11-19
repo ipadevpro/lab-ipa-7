@@ -1,0 +1,5 @@
+.DS_Store
+.claude/
+figures/*/shots/
+figures/*/mont.py
+figures/*/shot.sh

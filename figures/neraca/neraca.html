@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Neraca sama-lengan</title></head><body>
+<script src="core.js"></script>
+<script>
+/* Neraca sama-lengan (timbangan dua piringan) di atas meja lab. 1 unit = 1 cm.
+   x = kedalaman (depan di x besar), y = lebar (+y = kiri penonton di tampilan awal), z = atas. Papan meja z 0..3.
+
+   CARA KERJA NYATA
+   1. Benda uji diambil dari meja dan ditaruh di piringan kiri (y besar).
+   2. Lengan bertumpu pada tumpuan pisau (knife edge) di atas agat; sisi yang lebih berat turun.
+   3. Anak timbangan dari kotak kayu ditaruh satu per satu di piringan kanan.
+   4. Jarum penunjuk ikut lengan dan berayun di depan skala; ayunan teredam lalu diam.
+   5. Bila jarum diam di angka nol, momen kiri = momen kanan; lengan sama panjang, jadi massa benda = jumlah anak timbangan.
+   MODEL: lengan L = 28 cm, M·d (massa lengan × jarak titik beratnya di bawah tumpuan) = 2700 g·cm.
+          Sudut setimbang tan(θ) = Δm·L / (M·d), dibatasi ±12° (penahan). Ayunan: pegas teredam
+          θ'' = -ω²(θ - θ*) - 2ζωθ', periode 1,4 s, ζ = 0,22.
+   BAGIAN
+   alas      papan meja . alas neraca . 4 sekrup penyetel (kenop + ulir menembus alas) . nivo
+   struktur  tiang berongga . kepala tiang (dasar + dua pipi) . pelat agat . pelat skala + braket
+   lengan    balok tengah . tumpuan pisau . lengan kiri + kanan . braket jarum . jarum penunjuk
+   piringan  2 batang gantungan . 2 cincin . 6 kawat . 2 piringan
+   lainnya   kotak kayu + alas beludru . anak timbangan 100, 50, 20, 20, 10, 5 g . batu . apel . kubus kayu */
+const PV = [23, 50, 40.3];                                  // titik tumpu (ujung pisau)
+const ARM = 27.8, K_TILT = 28/2700, TH_MAX = 12*Math.PI/180;
+const W0 = 2*Math.PI/1.4, ZETA = .22;
+const BTOP = boardTop(0, 0, 50, 100, 3, 5);
+const BRASS = { l:'#f1cf6e', m:'#d4a93f', d:'#8a6a1e' }, AGAT = matOf('#c9875a'), KNIFE = matOf('#8a9397'), BEAM = matOf('#dfe5e7');
+const VELVET = '#6b2f3a', APPLE = { l:'#ef5a45', m:'#d23f2f', d:'#8e2219' }, STONE = { l:'#b4aea3', m:'#948e83', d:'#625d55' };
+const WTS = [
+  { id:'w100', m:100, r:1.8, h:3.0, box:[41.5, 8.5],  pan:[-1.5, 2.8] },
+  { id:'w50',  m:50,  r:1.5, h:2.4, box:[41.5, 14.5], pan:[2.5, 2.2] },
+  { id:'w20a', m:20,  r:1.1, h:2.0, box:[39.5, 20],   pan:[2.8, -2.4] },
+  { id:'w20b', m:20,  r:1.1, h:2.0, box:[43.5, 20],   pan:[-1.0, -3.3] },
+  { id:'w10',  m:10,  r:.9,  h:1.6, box:[39.5, 25.5], pan:[-4.2, -.4] },
+  { id:'w5',   m:5,   r:.75, h:1.3, box:[43.5, 25.5], pan:[.6, -.3] } ];
+const OBJS = {
+  batu:  { name:'Batu', low:'batu', m:135, at:[41, 62], r:2.7, h:3.4 },
+  apel:  { name:'Apel', low:'apel', m:180, at:[41, 75], r:3.9, h:7.6 },
+  kubus: { name:'Kubus kayu', low:'kubus kayu', m:65, at:[41, 89], r:2.5, h:5 } };
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rotB = (x, ry, rz, th) => [x, PV[1] + ry*Math.cos(th) + rz*Math.sin(th), PV[2] - ry*Math.sin(th) + rz*Math.cos(th)];
+const bbOf = pts => [[0,1,2].map(i => Math.min(...pts.map(p => p[i])) - .02), [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + .02)];
+// byDepth with a non-transitive comparator can misorder; here box separations are hard edges (topological order),
+// and the farthest free part goes first. ponytail: O(n²) pairs, fine for ~40 parts
+function nrSort(parts){
+  parts = parts.filter(Boolean); const n = parts.length, out = [], indeg = new Array(n).fill(0), next = parts.map(() => []);
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++){ const o = sepOrder(parts[i], parts[j]);
+    if (o < 0){ next[i].push(j); indeg[j]++; } else if (o > 0){ next[j].push(i); indeg[i]++; } }
+  const dp = parts.map(p => depthOf(p.at || boxMid(p.box))), done = new Array(n).fill(false);
+  for (let c = 0; c < n; c++){
+    let b = -1; for (let i = 0; i < n; i++) if (!done[i] && indeg[i] === 0 && (b < 0 || dp[i] < dp[b])) b = i;
+    if (b < 0){ for (let i = 0; i < n; i++) if (!done[i] && (b < 0 || dp[i] < dp[b])) b = i; }   // a cycle: break it by depth
+    done[b] = true; out.push(parts[b].svg); for (const j of next[b]) indeg[j]--;
+  }
+  return out.join('');
+}
+const ghost = (svg, k) => k > 0 ? `<g opacity="${f(1 - .8*k)}">${svg}</g>` : svg;
+
+// a convex profile (ry, rz) in the beam's turning frame, swept along x from x0 to x1
+function prismX(prof, x0, x1, th, m, w = .8){
+  const A = prof.map(([a, b]) => rotB(x0, a, b, th)), B = prof.map(([a, b]) => rotB(x1, a, b, th));
+  let s = loft(A, B, n => toneI(n, m));
+  if (vis([1,0,0])) s += shape(B, toneI([1,0,0], m), w*.7); else if (vis([-1,0,0])) s += shape(A, toneI([-1,0,0], m), w*.7);
+  return { svg: s + hullInk([...A, ...B], w), box: bbOf([...A, ...B]) };
+}
+
+/* ---------- state helpers ---------- */
+const landed = (st, id) => st.tg[id] === 1 && st.mv[id] === 1;
+const massL = st => st.obj && landed(st, st.obj) ? OBJS[st.obj].m : 0;
+const massR = st => WTS.reduce((a, w) => a + (landed(st, w.id) ? w.m : 0), 0);
+const target = st => clamp(Math.atan((massL(st) - massR(st))*K_TILT), -TH_MAX, TH_MAX);
+
+function panOf(side, th){                                    // side +1 = kiri (y besar), -1 = kanan
+  const H = rotB(23, side*ARM, 1, th);
+  return { H, Ey: H[1], pz: H[2] - 25 };
+}
+function posOf(st, id, th){
+  const w = WTS.find(w => w.id === id), o = OBJS[id];
+  const S = w ? [w.box[0], w.box[1], 6.02] : [o.at[0], o.at[1], 3];
+  const pn = panOf(w ? -1 : 1, th), E = w ? [23 + w.pan[0], pn.Ey + w.pan[1], pn.pz + .15] : [23, pn.Ey, pn.pz + .15];
+  const e = ease(st.mv[id]);
+  return [0,1,2].map(i => S[i] + (E[i] - S[i])*e + (i === 2 ? 18*Math.sin(Math.PI*e) : 0));
+}
+
+/* ---------- small things ---------- */
+function weight(w, [x, y, z]){
+  const r = w.r, h = w.h;
+  return cyl(x, y, z, z + h, r, BRASS, toneI, .9, 18) + cyl(x, y, z + h, z + h*1.22, r*.42, BRASS, toneI, .7, 12)
+    + cyl(x, y, z + h*1.22, z + h*1.52, r*.62, BRASS, toneI, .8, 14);
+}
+const NOISE = [1, .86, 1.08, .94, 1.04, .88, 1.1, .95, .9];
+function batu([x, y, z]){
+  const rings = [[0, .72], [1.1, 1], [2.4, .9], [3.4, .48]].map(([dz, k]) =>
+    on(PZ(z + dz), NOISE.map((nz, i) => { const a = i/9*2*Math.PI + .3; return [x + 2.7*k*nz*Math.cos(a), y + 2.2*k*nz*Math.sin(a)]; })));
+  let s = ''; for (let i = 0; i < 3; i++) s += loft(rings[i], rings[i+1], n => toneI(n, STONE));
+  s += fill(pd(rings[3]), toneI([0,0,1], STONE));
+  return s + hullInk(rings.flat(), 1.1);
+}
+function apel([x, y, z]){
+  const prof = [[0, 1.5], [.6, 2.9], [1.6, 3.7], [3.0, 3.9], [4.4, 3.6], [5.5, 2.8], [6.1, 1.5]];
+  const rings = prof.map(([dz, r]) => on(PZ(z + dz), ellUV(x, y, r, r, 18)));
+  let s = ''; for (let i = 0; i < rings.length - 1; i++) s += loft(rings[i], rings[i+1], n => toneI(n, APPLE));
+  s += fill(pd(rings[6]), APPLE.m) + fill(pd(on(PZ(z + 6.1), ellUV(x, y, .8, .8, 10))), APPLE.d);
+  s += hullInk(rings.flat(), 1.1);
+  s += rod([x, y, z + 5.7], [x + .3, y - .4, z + 7.3], .18, matOf('#6b4a2a'), toneI, .6);
+  s += shape([[x + .3, y - .3, z + 6.9], [x + 1.4, y - 1.6, z + 7.4], [x + 2.4, y - 2.2, z + 6.8], [x + 1.2, y - 1, z + 6.5]], '#6fb14a', .7);
+  return s;
+}
+const kubus = ([x, y, z]) => box(x - 2.5, y - 2.5, z, x + 2.5, y + 2.5, z + 5, WOOD, toneI, 1);
+const DRAW = { batu, apel, kubus };
+const moverBox = (id, p) => { const w = WTS.find(w => w.id === id), r = w ? w.r : OBJS[id].r, h = w ? w.h*1.52 : OBJS[id].h;
+  return [[p[0] - r, p[1] - r, p[2]], [p[0] + r, p[1] + r, p[2] + h]]; };
+const moverSvg = (id, p) => { const w = WTS.find(w => w.id === id); return w ? weight(w, p) : DRAW[id](p); };
+
+/* ---------- the pans: far inner wall, far wires, contents, near outer wall, near wires ---------- */
+function panSvg(side, th, contents){
+  const { Ey, pz } = panOf(side, th), cx = 23;
+  const A = on(PZ(pz), ellUV(cx, Ey, 6.5, 6.5, 28)), B = on(PZ(pz + 1.6), ellUV(cx, Ey, 9, 9, 28));
+  const R = [cx, Ey, pz + 12], mid = depthOf([cx, Ey, pz + 1.6]);
+  const rims = [90, 210, 330].map(a => [cx + 8.8*Math.cos(a*Math.PI/180), Ey + 8.8*Math.sin(a*Math.PI/180), pz + 1.6]);
+  const wire = p => `<path d="${pd([R, p], false)}" fill="none" stroke="${INK}" stroke-width="1.4" stroke-linecap="round"/><path d="${pd([R, p], false)}" fill="none" stroke="${METAL.m}" stroke-width=".55" stroke-linecap="round"/>`;
+  let s = loft(A, B, n => toneI(n, METAL), true) + fill(pd(A), mix(METAL.m, '#ffffff', .2)) + ink(pd(A), .5);
+  s += rims.filter(p => depthOf(p) <= mid).map(wire).join('');
+  s += nrSort(contents);
+  s += loft(A, B, n => toneI(n, METAL)) + ink(pd(B), 1.1) + hullInk([...A, ...B], 1.4);
+  s += rims.filter(p => depthOf(p) > mid).map(wire).join('');
+  s += ink(pd(on(PZ(pz + 12), ellUV(cx, Ey, .9, .9, 12))), 1.1);
+  return { box: [[14, Ey - 9, pz], [32, Ey + 9, pz + 12]], svg: s };
+}
+
+/* ---------- scene ---------- */
+let LBL = [];
+function scene(st, m){
+  const th = st.th, k = ease(st.xr || 0), parts = [];
+  const put = (b, svg) => parts.push({ box: b, svg });
+  let s = board(0, 0, 50, 100, 3, 5);
+
+  // shadows: base, pillar, beam, pans, box, loose things (all on the table top)
+  const corners = (x0, y0, z0, x1, y1, z1) => { const o = []; for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) o.push([x, y, z]); return o; };
+  const sh = [corners(12, 32, 3, 34, 68, 9), corners(20, 47, 9, 26, 53, 43.5),
+    [-1, 1].flatMap(sd => [rotB(22.4, sd*28.6, .4, th), rotB(23.6, sd*28.6, 1.9, th), rotB(22.4, sd*2.4, 5, th), rotB(23.6, sd*2.4, 1.6, th)]),
+    corners(36.5, 4, 3, 46.5, 29.5, 6)];
+  for (const sd of [-1, 1]){ const { Ey, pz } = panOf(sd, th); sh.push([...on(PZ(pz), ellUV(23, Ey, 9, 9, 16)), [23, Ey, pz + 12]]); }
+  for (const id of [...WTS.map(w => w.id), ...Object.keys(OBJS)]) if (st.mv[id] < 1){ const b = moverBox(id, posOf(st, id, th)); sh.push(corners(b[0][0], b[0][1], b[0][2], b[1][0], b[1][1], b[1][2])); }
+  s += clipTo(BTOP, sh.map(p => castShadow(p, 3)).join(''));
+
+  // ---- base, leveling screws, level vial
+  let base = box(12, 32, 5, 34, 68, 9, m, tone, 1.4);
+  let threads = '';
+  const FEET = [[14.5, 34.5], [31.5, 34.5], [14.5, 65.5], [31.5, 65.5]];
+  if (k > 0) for (const [x, y] of FEET){
+    let t = rod([x, y, 4.6], [x, y, 9.5], .7, METAL, toneI, .6);
+    for (let z = 5.4; z < 9.3; z += .7) t += ink(pd([[x - .7, y, z], [x + .7, y, z + .3]], false), .5);
+    threads += t + cyl(x, y, 9, 9.6, 1.1, KNIFE, toneI, .6, 6);       // lock nut on top
+  }
+  put([[12, 32, 5], [34, 68, 9]], ghost(base, k) + (k > 0 ? `<g opacity="${f(k)}">${threads}</g>` : ''));
+  for (const [x, y] of FEET){
+    let ft = cyl(x, y, 3, 5, 1.8, DARK, toneI, 1, 16);
+    put([[x - 1.8, y - 1.8, 3], [x + 1.8, y + 1.8, 5]], ft);
+  }
+  put([[28.5, 38.5, 9], [31.5, 41.5, 9.8]], cyl(30, 40, 9, 9.8, 1.4, METAL, toneI, .8, 16)
+    + fill(pd(on(PZ(9.85), ellUV(30, 40, 1, 1, 14))), '#cfe9a8') + ink(pd(on(PZ(9.85), ellUV(30, 40, .45, .45, 10))), .6));
+
+  // ---- hollow pillar (see-through: far inner walls of the bore)
+  let pil = '';
+  if (k > 0){ const x0 = 20.8, x1 = 25.2, y0 = 47.8, y1 = 52.2, z0 = 9, z1 = 38, IN = '#4a4640';
+    const F = [[[1,0,0], [[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]]], [[-1,0,0], [[x0,y0,z0],[x0,y1,z0],[x0,y1,z1],[x0,y0,z1]]],
+      [[0,1,0], [[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]]], [[0,-1,0], [[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1]]]];
+    pil += `<g opacity="${f(k)}">` + F.filter(([n]) => !vis(n)).map(([n, q]) => shape(q, mix(IN, '#f2efe7', n[2] ? .1 : .3), .5)).join('')
+      + fill(pd(on(PZ(9.02), rectUV(x0, y0, x1, y1))), '#2b2724') + '</g>';
+  }
+  put([[20, 47, 9], [26, 53, 38]], pil + ghost(box(20, 47, 9, 26, 53, 38, m, tone, 1.3), k));
+
+  // ---- pillar head: bottom block, agate plate, two cheeks either side of the beam's block
+  put([[19.5, 47.8, 38], [26.5, 52.2, 39.4]], ghost(box(19.5, 47.8, 38, 26.5, 52.2, 39.4, m, tone, 1), k));
+  put([[19.5, 47.8, 39.4], [21.4, 52.2, 43.5]], ghost(box(19.5, 47.8, 39.4, 21.4, 52.2, 43.5, m, tone, 1), k));
+  put([[24.6, 47.8, 39.4], [26.5, 52.2, 43.5]], ghost(box(24.6, 47.8, 39.4, 26.5, 52.2, 43.5, m, tone, 1), k));
+  put([[21.6, 49, 39.4], [24.4, 51, 40.2]], box(21.6, 49, 39.4, 24.4, 51, 40.2, AGAT, toneI, .7));
+
+  // ---- beam: centre block with the knife edge under it, two tapered arms, pointer bracket
+  { const kn = prismX([[-1, 1.6], [1, 1.6], [0, 0]], 21.8, 24.2, th, KNIFE, .7), bl = prismX([[-2.4, 1.6], [2.4, 1.6], [2.4, 5.6], [-2.4, 5.6]], 21.8, 24.2, th, BEAM, 1);
+    put(bbOf([...kn.box, ...bl.box]), kn.svg + bl.svg); }
+  for (const sd of [-1, 1]){
+    const prof = [[2.4, 1.6], [28.6, .4], [28.6, 1.9], [2.4, 5]].map(([a, b]) => [sd*a, b]);
+    const arm = prismX(prof, 22.4, 23.6, th, BEAM, 1.1);
+    const { H, pz } = panOf(sd, th), top = rotB(23, sd*ARM, 2.4, th);
+    const hang = rod(top, [23, H[1], pz + 12.9], .25, METAL, toneI, .6);
+    put(bbOf([...arm.box, [22.7, H[1] - .3, pz + 12], [23.3, H[1] + .3, top[2]]]), hang + arm.svg);
+  }
+  { const br = prismX([[-.5, 4.4], [.5, 4.4], [.5, 5.6], [-.5, 5.6]], 24.2, 28.4, th, BEAM, .7); put(br.box, br.svg); }
+  const pTop = rotB(28, 0, 5, th), pTip = rotB(28, 0, -29, th);
+  put(bbOf([pTop, pTip]).map((p, i) => [p[0] + (i ? .35 : -.35), p[1] + (i ? .35 : -.35), p[2]]), rod(pTop, pTip, .32, DARK, toneI, .8, .1));
+
+  // ---- scale plate on its bracket in front of the pillar
+  { let sc = box(26, 49, 10.5, 26.6, 51, 14, METAL, toneI, .6) + box(26.6, 42, 9.6, 27.2, 58, 15, CERAMIC, toneI, 1);
+    if (vis([1,0,0])){ let t = ''; for (let i = -5; i <= 5; i++){ const y = 50 + i*1.4; t += pd([[27.25, y, 12.4], [27.25, y, i % 5 === 0 ? 14.5 : 13.6]], false); }
+      sc += ink(t, .8) + shape([[27.26, 49.6, 14.7], [27.26, 50.4, 14.7], [27.26, 50, 14.1]], '#e2483d', .4); }
+    put([[26, 42, 9.6], [27.2, 58, 15]], sc); }
+
+  // ---- pans with what is in them
+  const inL = [], inR = [];
+  for (const id of Object.keys(OBJS)) if (st.mv[id] === 1){ const p = posOf(st, id, th); inL.push({ box: moverBox(id, p), svg: moverSvg(id, p) }); }
+  for (const w of WTS) if (st.mv[w.id] === 1){ const p = posOf(st, w.id, th); inR.push({ box: moverBox(w.id, p), svg: moverSvg(w.id, p) }); }
+  parts.push(panSvg(1, th, inL), panSvg(-1, th, inR));
+
+  // ---- the weight box (velvet top, a seat for each weight) and the loose things
+  { let bx = box(36.5, 4, 3, 46.5, 29.5, 6, WOOD, toneI, 1.2);
+    bx += fill(pd(on(PZ(6.01), rrUV(37.2, 4.7, 45.8, 28.8, 1))), VELVET);
+    for (const w of WTS) bx += fill(pd(on(PZ(6.02), ellUV(w.box[0], w.box[1], w.r + .35, w.r + .35, 14))), '#3a161d');
+    put([[36.5, 4, 3], [46.5, 29.5, 6]], bx); }
+  for (const id of [...WTS.map(w => w.id), ...Object.keys(OBJS)]) if (st.mv[id] < 1){ const p = posOf(st, id, th); put(moverBox(id, p), moverSvg(id, p)); }
+
+  s += nrSort(parts);
+
+  // ---- labels (shown with the Label switch; numbered badges on a phone)
+  const L = panOf(1, th), Rp = panOf(-1, th), anyR = WTS.some(w => st.mv[w.id] > 0), swing = Math.abs(st.om) > .01;
+  const reading = performance.now() - (st.readT || -1e9) < 2500;
+  s += xrCallouts([
+    { at: rotB(23, 16, 3, th), text:'LENGAN', on: swing },
+    { at: [31, L.Ey, L.pz + 1.6], text:'PIRINGAN', on: !!st.obj },
+    { at: PV, text:'TUMPUAN', on: swing },
+    { at: rotB(28, 0, -16, th), text:'JARUM PENUNJUK', on: reading },
+    { at: [27.2, 56.5, 12], text:'SKALA', on: reading },
+    { at: anyR ? [23, Rp.Ey, Rp.pz + 2] : [41.5, 8.5, 9], text:'ANAK TIMBANGAN', on: anyR },
+    { at: [31.5, 65.5, 4], text:'SEKRUP PENYETEL', on: false } ], [0, 50, 0, 100, 0, 50]);
+  return s;
+}
+
+/* ---------- behaviour: one state object, one loop ---------- */
+let ui, runOn = false;
+const ids = () => [...WTS.map(w => w.id), ...Object.keys(OBJS)];
+function run(){
+  if (runOn) return; runOn = true;
+  ui.animate(dt => { const st = ui.st;
+    let moving = false;
+    for (const id of ids()){ const t = st.tg[id], p = st.mv[id];
+      if (p !== t){ st.mv[id] = t > p ? Math.min(t, p + dt/.8) : Math.max(t, p - dt/.8); moving = true; } }
+    const tt = target(st);
+    for (let i = 0; i < 4; i++){ const h = dt/4, a = -W0*W0*(st.th - tt) - 2*ZETA*W0*st.om; st.om += a*h; st.th += st.om*h;
+      if (Math.abs(st.th) > TH_MAX){ st.th = Math.sign(st.th)*TH_MAX; st.om = 0; } }   // lengan menyentuh penahan
+    const settled = Math.abs(st.th - tt) < 1e-3 && Math.abs(st.om) < 4e-3;
+    if (settled){ st.th = tt; st.om = 0; afterSettle(st); }
+    const busy = moving || !settled;
+    if (!busy) runOn = false;
+    return busy; });
+}
+function afterSettle(st){
+  const key = (st.obj || '') + ':' + massR(st);
+  if (st.obj && landed(st, st.obj) && massL(st) === massR(st) && st.balKey !== key){ st.balKey = key; say(st); }
+}
+const say = st => ui.flash(`Seimbang! Massa ${OBJS[st.obj].low} = ${OBJS[st.obj].m} g`, 3200);
+function putObj(st, id){
+  if (st.obj) st.tg[st.obj] = 0;
+  st.obj = id; st.tg[id] = 1;
+  if (!st.toldSI){ st.toldSI = true; ui.flash('Massa adalah besaran pokok. Satuan SI massa adalah kilogram (kg).', 3400); }
+  run();
+}
+function addW(st, mass){
+  const w = WTS.find(w => w.m === mass && st.tg[w.id] === 0);
+  if (!w) return;
+  st.tg[w.id] = 1; run();
+}
+function emptyPan(st){
+  const on = WTS.filter(w => st.tg[w.id] === 1);
+  if (!on.length) return ui.flash('Piringan kanan sudah kosong.');
+  for (const w of on) st.tg[w.id] = 0;
+  st.balKey = null; run();
+}
+function readNeedle(st){
+  st.readT = performance.now(); setTimeout(() => ui.render(), 2600);
+  if (!st.obj) return ui.flash('Taruh benda di piringan kiri dulu.');
+  if (ids().some(id => st.mv[id] !== st.tg[id]) || Math.abs(st.om) > .02 || Math.abs(st.th - target(st)) > .005)
+    return ui.flash('Jarum masih berayun. Tunggu sampai diam, lalu baca lagi.');
+  const d = massL(st) - massR(st);
+  if (d === 0) return say(st);
+  ui.flash(d > 0 ? 'Belum seimbang: jarum ke kanan, piringan kiri lebih berat. Tambah anak timbangan.'
+                 : 'Belum seimbang: jarum ke kiri, piringan kanan lebih berat. Kurangi anak timbangan.', 3200);
+}
+
+ui = mountFigure({
+  fig:'1', turn:'full', title:'Neraca sama-lengan',
+  size:[50, 100, 52], center:[25, 50], palette:'cobalt',
+  // th = sudut lengan (rad, + = kiri turun), om = kecepatan sudut; mv = posisi tiap benda 0 (meja/kotak)..1 (piringan), tg = tujuannya
+  state:{ th:0, om:0, obj:null, mv:Object.fromEntries(ids().map(id => [id, 0])), tg:Object.fromEntries(ids().map(id => [id, 0])), readT:0, balKey:null, toldSI:false },
+  scene,
+  stats: st => [{ label:'Anak timbangan', value:`${massR(st)} g` }, { label:'Selisih', value:`${Math.abs(massL(st) - massR(st))} g` }],
+  buttons:[
+    { label:'Taruh benda', choices: st => Object.entries(OBJS).map(([id, o]) => ({ label:o.name, current: st.obj === id, onClick:(st) => putObj(st, id) })) },
+    { label:'Tambah anak timbangan', choices: st => [100, 50, 20, 10, 5].map(mass => {
+        const free = WTS.some(w => w.m === mass && st.tg[w.id] === 0);
+        return { label:`${mass} g`, disabled: !free, why: mass === 20 ? 'Kedua anak timbangan 20 g sudah di piringan kanan.' : `Anak timbangan ${mass} g sudah di piringan kanan.`,
+          onClick:(st) => addW(st, mass) }; }) },
+    { label:'Kosongkan piringan', onClick:(st) => emptyPan(st) },
+    { label:'Baca jarum', onClick:(st) => readNeedle(st) },
+  ],
+  // ?obj=batu&w=100,20,10,5 menaruh benda dan anak timbangan langsung; ?th=8 memulai lengan miring 8° (lalu berayun)
+  params:(st, q) => {
+    if (OBJS[q.get('obj')]){ st.obj = q.get('obj'); st.mv[st.obj] = st.tg[st.obj] = 1; st.toldSI = true; }
+    if (q.get('w')) for (const v of q.get('w').split(',')){ const w = WTS.find(w => w.m === +v && !st.tg[w.id]); if (w) st.mv[w.id] = st.tg[w.id] = 1; }
+    st.th = target(st);
+    if (q.has('th')) st.th = (+q.get('th') || 0)*Math.PI/180;
+  },
+});
+xrMount(() => ui, () => '');
+if (Math.abs(ui.st.th - target(ui.st)) > 1e-4) run();
+</script></body></html>

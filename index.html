@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab IPA Kelas 7</title>
+<meta name="description" content="Materi IPA SMP kelas 7 Kurikulum Merdeka dengan simulasi interaktif, latihan, dan kuis.">
+<style>
+:root{
+  --paper:#f2efe7; --card:#fbf8f1; --ink:#231e16; --ink2:#5b5244; --line:rgba(35,30,22,.18);
+  --accent:#f4b829; --ok:#2f8f4e; --okbg:#e3f3e6; --bad:#c2412d; --badbg:#fbe5df; --blue:#3d6fb6;
+  --r:14px; --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, Menlo, Consolas, monospace;
+}
+*{box-sizing:border-box}
+html{scroll-padding-top:70px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 var(--sans);-webkit-text-size-adjust:100%}
+a{color:inherit}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--blue);outline-offset:2px;border-radius:6px}
+
+/* top bar */
+.top{position:sticky;top:0;z-index:20;background:rgba(242,239,231,.94);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.top .in{max-width:1080px;margin:0 auto;padding:10px 16px;display:flex;gap:12px;align-items:center}
+.brand{font-weight:800;letter-spacing:-.01em;white-space:nowrap;text-decoration:none}
+.brand small{font:600 11px var(--mono);color:var(--ink2);margin-left:6px}
+.nav{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex:1}
+.nav::-webkit-scrollbar{display:none}
+.nav a{flex:none;text-decoration:none;font:700 13px var(--mono);padding:6px 10px;border:1.5px solid var(--ink);border-radius:999px;background:var(--card)}
+.nav a.done{background:var(--accent)}
+.nav a.cur{background:var(--ink);color:var(--paper)}
+
+main{max-width:1080px;margin:0 auto;padding:0 16px 80px}
+.hero{padding:40px 0 18px}
+.hero h1{font-size:clamp(30px,6vw,52px);line-height:1.05;margin:0 0 12px;letter-spacing:-.02em}
+.hero p{max-width:640px;color:var(--ink2);margin:0 0 18px}
+.prog{display:flex;align-items:center;gap:12px;font:600 13px var(--mono)}
+.bar{flex:1;max-width:320px;height:12px;border:1.5px solid var(--ink);border-radius:999px;background:var(--card);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .4s}
+.grid7{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:22px 0 8px}
+.grid7 a{display:block;text-decoration:none;background:var(--card);border:1.5px solid var(--ink);border-radius:var(--r);padding:12px;box-shadow:0 3px 0 var(--ink);transition:transform .12s, box-shadow .12s}
+.grid7 a:hover{transform:translateY(-2px);box-shadow:0 5px 0 var(--ink)}
+.grid7 b{display:block;font:800 12px var(--mono);color:var(--ink2)}
+.grid7 span{display:block;font-weight:700;line-height:1.25;margin-top:4px}
+.grid7 em{display:block;font:600 11px var(--mono);font-style:normal;margin-top:8px;color:var(--ink2)}
+
+/* chapter */
+.bab{padding-top:44px;border-top:2px dashed var(--line);margin-top:36px}
+.bab > header .no{font:800 13px var(--mono);letter-spacing:.08em;color:var(--ink2)}
+.bab > header h2{font-size:clamp(24px,4.5vw,36px);line-height:1.1;margin:4px 0 10px;letter-spacing:-.015em}
+.tujuan{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px;margin:12px 0 20px}
+.tujuan b{font:800 12px var(--mono);letter-spacing:.06em}
+.tujuan ul{margin:6px 0 0;padding-left:20px}
+.two{display:grid;grid-template-columns:1fr;gap:18px}
+@media (min-width:900px){.two{grid-template-columns:1.15fr .85fr;align-items:start}}
+h3{font-size:20px;margin:26px 0 8px}
+h4{font-size:16px;margin:16px 0 4px}
+.materi p{margin:0 0 10px}
+.materi ul{padding-left:20px;margin:0 0 10px}
+.kotak{background:var(--card);border:1.5px solid var(--ink);border-radius:var(--r);padding:14px 16px;margin:12px 0}
+.kotak.kuning{background:#fff1bf}
+.rumus{font:700 17px var(--mono);background:#fff1bf;border:1.5px solid var(--ink);border-radius:10px;padding:8px 12px;display:inline-block;margin:4px 0 8px}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:6px 0 12px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{background:#ece6d8;font:700 12px var(--mono);letter-spacing:.03em}
+.tbl{overflow-x:auto}
+
+/* simulation */
+.sim{background:var(--card);border:1.5px solid var(--ink);border-radius:var(--r);overflow:hidden;box-shadow:0 4px 0 var(--ink);margin:8px 0 10px}
+.sim .cap{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 12px;border-bottom:1.5px solid var(--ink);font:800 12px var(--mono);letter-spacing:.06em;background:var(--accent)}
+.sim .cap a{font-weight:700;text-decoration:none;border:1.5px solid var(--ink);border-radius:999px;padding:2px 9px;background:var(--card)}
+.sim iframe{display:block;width:100%;height:min(78vh,720px);border:0;background:var(--paper)}
+@media (max-width:560px){.sim iframe{height:min(80vh,700px)}}
+.coba{margin:0;padding-left:22px}
+.coba li{margin:4px 0}
+.tip{font-size:14px;color:var(--ink2)}
+
+/* activities */
+.akt{background:var(--card);border:1.5px solid var(--ink);border-radius:var(--r);padding:14px 16px;margin:14px 0}
+.akt > b.t{display:block;font:800 12px var(--mono);letter-spacing:.06em;color:var(--ink2);margin-bottom:2px}
+.akt > h4{margin:0 0 8px}
+.akt .q{margin:0 0 10px;color:var(--ink2);font-size:14.5px}
+.chip{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--ink);border-radius:999px;padding:6px 12px;background:#fff;font-weight:600;font-size:14px;line-height:1.2;margin:3px;box-shadow:0 2px 0 var(--ink);transition:transform .08s}
+.chip:active{transform:translateY(2px);box-shadow:0 0 0 var(--ink)}
+.chip:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.chip[disabled]{cursor:default;box-shadow:none;opacity:1}
+.chip.ok{background:var(--okbg);border-color:var(--ok);color:#1d5c32}
+.chip.bad{background:var(--badbg);border-color:var(--bad)}
+.chip.sel{background:var(--ink);color:var(--paper)}
+.btn{all:unset;cursor:pointer;display:inline-block;border:1.5px solid var(--ink);border-radius:10px;padding:7px 14px;background:var(--accent);font-weight:700;font-size:14px;box-shadow:0 3px 0 var(--ink)}
+.btn.ghost{background:var(--card)}
+.btn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+.btn:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.sortrow{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 0;border-bottom:1px dashed var(--line)}
+.sortrow .it{flex:1 1 200px;font-weight:600}
+.sortrow .opts{display:flex;flex-wrap:wrap}
+.fb{min-height:1.4em;font-size:14px;margin:6px 0 0}
+.fb.ok{color:var(--ok)} .fb.bad{color:var(--bad)}
+.score{font:700 13px var(--mono)}
+.chain{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:42px;padding:8px;border:1.5px dashed var(--line);border-radius:10px;margin:8px 0;background:#fff}
+.chain .lk{font-weight:700;background:var(--okbg);border:1.5px solid var(--ok);border-radius:8px;padding:4px 9px}
+.chain .ar{font-weight:800;color:var(--ink2)}
+.shake{animation:sh .35s}
+@keyframes sh{20%{transform:translateX(-5px)}50%{transform:translateX(5px)}80%{transform:translateX(-3px)}}
+input[type=range]{width:100%;accent-color:var(--ink)}
+.row2{display:grid;grid-template-columns:1fr;gap:10px}
+@media (min-width:560px){.row2{grid-template-columns:1fr 1fr}}
+.out{font:700 15px var(--mono)}
+.big{font:800 26px var(--mono)}
+label.l{display:block;font:700 12px var(--mono);letter-spacing:.04em;color:var(--ink2);margin-top:6px}
+select{font:inherit;padding:6px 8px;border:1.5px solid var(--ink);border-radius:8px;background:#fff}
+
+/* thermometers */
+.thermos{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+.th{display:flex;flex-direction:column;align-items:center;gap:4px;font:700 12px var(--mono)}
+.th .tube{position:relative;width:18px;height:150px;border:1.5px solid var(--ink);border-radius:9px 9px 0 0;background:#fff;overflow:hidden}
+.th .tube i{position:absolute;left:0;right:0;bottom:0;background:#d8432f;transition:height .2s}
+.th .bulb{width:30px;height:30px;margin-top:-6px;border:1.5px solid var(--ink);border-radius:50%;background:#d8432f}
+.th .v{font-size:15px}
+
+/* grid route */
+.route{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}
+@media (max-width:560px){.route{grid-template-columns:1fr}}
+.route svg{width:100%;max-width:300px;background:#fff;border:1.5px solid var(--ink);border-radius:10px;touch-action:manipulation}
+.pad{display:grid;grid-template-columns:repeat(3,52px);gap:6px;justify-content:start}
+.pad .btn{text-align:center;padding:9px 0}
+
+/* dichotomous */
+.dk .step{font-weight:700;margin:6px 0}
+.dk .path{font:600 12.5px var(--mono);color:var(--ink2);margin-top:8px}
+.ans{font-size:20px;font-weight:800;margin:6px 0}
+
+/* planets */
+.planets{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:12px 4px;background:#14161f;border-radius:10px}
+.planets button{all:unset;cursor:pointer;flex:none;border-radius:50%;border:2px solid transparent}
+.planets button.sel{border-color:#fff1bf;box-shadow:0 0 0 3px rgba(255,241,191,.35)}
+.planets button:focus-visible{outline:3px solid #fff1bf}
+.pinfo{margin-top:10px}
+
+/* quiz */
+.quiz{background:var(--card);border:1.5px solid var(--ink);border-radius:var(--r);padding:16px;margin:22px 0 4px;box-shadow:0 4px 0 var(--ink)}
+.quiz > h3{margin:0 0 4px}
+.qq{padding:12px 0;border-bottom:1px dashed var(--line)}
+.qq:last-of-type{border-bottom:0}
+.qq p{margin:0 0 6px;font-weight:700}
+.qq .opts{display:grid;gap:6px}
+.qq .opt{all:unset;cursor:pointer;display:block;border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;background:#fff;font-size:15px}
+.qq .opt:hover{border-color:var(--ink)}
+.qq .opt:focus-visible{outline:3px solid var(--blue)}
+.qq .opt.ok{border-color:var(--ok);background:var(--okbg)}
+.qq .opt.bad{border-color:var(--bad);background:var(--badbg)}
+.qq .ex{font-size:14px;margin-top:6px;color:var(--ink2)}
+.qres{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
+footer.f{max-width:1080px;margin:0 auto;padding:24px 16px 40px;font-size:13px;color:var(--ink2)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div class="top"><div class="in">
+  <a class="brand" href="#awal">Lab IPA 7<small>KURMER</small></a>
+  <nav class="nav" id="nav" aria-label="Bab"></nav>
+</div></div>
+
+<main>
+  <section class="hero" id="awal">
+    <h1>Lab IPA Kelas 7</h1>
+    <p>Tujuh bab IPA SMP kelas 7 Kurikulum Merdeka. Di setiap bab ada ringkasan materi, simulasi alat yang bisa kamu putar, buka bagian dalamnya, dan coba sendiri, ditambah latihan dan kuis.</p>
+    <div class="prog"><span>Kuis tuntas</span><div class="bar" aria-hidden="true"><i id="progbar"></i></div><span id="progtxt">0/7</span></div>
+    <div class="grid7" id="cards"></div>
+    <p class="tip">Cara pakai simulasi: <b>geser</b> gambar untuk memutar alat, tekan tombol untuk menjalankan percobaan, nyalakan <b>Tembus pandang</b> untuk melihat bagian dalam, dan <b>Label</b> untuk nama bagian. Cubit atau Ctrl + gulir untuk memperbesar.</p>
+  </section>
+  <div id="babs"></div>
+</main>
+<footer class="f">Materi disusun mengikuti urutan bab buku IPA SMP/MTs Kelas VII Kurikulum Merdeka. Simulasi dibuat dengan Colorfigures (lisensi di <code>tools/COLORFIGURES-LICENSE</code>). Model di simulasi disederhanakan untuk belajar.</footer>
+
+<script>
+/* ---------- data ---------- */
+const BAB = [
+{ id:'bab1', no:1, judul:'Hakikat Ilmu Sains dan Metode Ilmiah', fig:'neraca', figNama:'Neraca sama-lengan',
+  tujuan:['Menjelaskan apa itu sains dan cabang-cabangnya','Menyusun langkah metode ilmiah dan mengenali variabel','Membedakan besaran pokok dan besaran turunan beserta satuannya','Mengukur massa dengan neraca'],
+  materi:`
+  <h3>A. Apa itu sains?</h3>
+  <p><b>Sains</b> atau Ilmu Pengetahuan Alam (IPA) mempelajari alam dan gejalanya melalui pengamatan dan percobaan. Cabangnya antara lain <b>biologi</b> (makhluk hidup), <b>fisika</b> (gerak, energi, gaya), <b>kimia</b> (zat dan perubahannya), <b>astronomi</b> (benda langit), dan <b>geologi</b> (batuan dan bumi).</p>
+  <h3>B. Laboratorium IPA</h3>
+  <p>Di laboratorium kita bekerja dengan alat dan bahan sungguhan, jadi keselamatan nomor satu: baca petunjuk, pakai jas lab dan kacamata bila perlu, kenali simbol bahaya pada label bahan (mudah terbakar, korosif, beracun), jangan mencicipi bahan, dan laporkan kecelakaan ke guru.</p>
+  <h3>C. Merancang percobaan (metode ilmiah)</h3>
+  <ol><li>Merumuskan masalah (pertanyaan)</li><li>Membuat hipotesis (dugaan sementara)</li><li>Merancang dan melakukan percobaan</li><li>Mengumpulkan dan mengolah data</li><li>Menarik kesimpulan</li><li>Melaporkan hasil</li></ol>
+  <div class="kotak"><b>Variabel</b><ul>
+    <li><b>Variabel bebas</b>: yang sengaja diubah peneliti.</li>
+    <li><b>Variabel terikat</b>: yang berubah akibat variabel bebas (yang diukur).</li>
+    <li><b>Variabel kontrol</b>: yang dibuat sama agar percobaan adil.</li></ul>
+    Contoh: pengaruh banyak cahaya terhadap tinggi tanaman. Bebas = banyak cahaya, terikat = tinggi tanaman, kontrol = jenis tanaman, air, tanah.</div>
+  <h3>D. Pengukuran</h3>
+  <p><b>Mengukur</b> berarti membandingkan suatu besaran dengan satuan baku. <b>Besaran pokok</b> satuannya ditetapkan lebih dulu (Sistem Internasional, SI); <b>besaran turunan</b> diturunkan dari besaran pokok.</p>
+  <div class="tbl"><table><tr><th>Besaran pokok</th><th>Satuan SI</th><th>Alat ukur</th></tr>
+    <tr><td>Panjang</td><td>meter (m)</td><td>mistar, jangka sorong, mikrometer sekrup</td></tr>
+    <tr><td>Massa</td><td>kilogram (kg)</td><td>neraca</td></tr>
+    <tr><td>Waktu</td><td>sekon (s)</td><td>stopwatch</td></tr>
+    <tr><td>Suhu</td><td>kelvin (K)</td><td>termometer</td></tr>
+    <tr><td>Kuat arus listrik</td><td>ampere (A)</td><td>amperemeter</td></tr>
+    <tr><td>Intensitas cahaya</td><td>kandela (cd)</td><td>lux meter (untuk iluminasi)</td></tr>
+    <tr><td>Jumlah zat</td><td>mol</td><td>–</td></tr></table></div>
+  <p>Ketelitian alat ukur panjang: mistar 1 mm, jangka sorong 0,1 mm, mikrometer sekrup 0,01 mm. Contoh besaran turunan: luas (m²), volume (m³), kelajuan (m/s), massa jenis (kg/m³).</p>
+  <h3>E. Pelaporan hasil percobaan</h3>
+  <p>Laporan memuat judul, tujuan, alat dan bahan, langkah kerja, data (tabel/grafik), pembahasan, dan kesimpulan yang menjawab rumusan masalah.</p>`,
+  coba:['Tekan <b>Taruh benda</b> dan pilih batu: lengan miring karena piringan kiri lebih berat.','Tambahkan anak timbangan satu per satu sampai jarum tepat di tengah.','Jumlahkan anak timbangan: itulah massa benda (dalam gram).','Nyalakan <b>Tembus pandang</b> untuk melihat tumpuan dan jarum penunjuk.'],
+  akt:[
+    {type:'sort', judul:'Besaran pokok atau turunan?', cats:['Pokok','Turunan'], items:[['Panjang',0],['Volume',1],['Massa',0],['Kelajuan',1],['Suhu',0],['Massa jenis',1],['Waktu',0],['Luas',1],['Kuat arus listrik',0],['Gaya',1]]},
+    {type:'order', judul:'Susun langkah metode ilmiah', items:['Merumuskan masalah','Membuat hipotesis','Melakukan percobaan','Mengolah data','Menarik kesimpulan','Melaporkan hasil']},
+    {type:'sort', judul:'Variabel apa?', soal:'Percobaan: "Apakah suhu air memengaruhi cepatnya gula larut?"', cats:['Bebas','Terikat','Kontrol'], items:[['Suhu air',0],['Waktu gula sampai larut',1],['Banyak gula',2],['Volume air',2],['Jenis gula',2]]}
+  ],
+  kuis:[
+    ['Satuan SI untuk massa adalah ...',['gram','kilogram','ons','newton'],1,'Massa adalah besaran pokok dengan satuan SI kilogram (kg).'],
+    ['Dugaan sementara yang akan diuji dengan percobaan disebut ...',['kesimpulan','variabel','hipotesis','data'],2,'Hipotesis adalah jawaban sementara atas rumusan masalah.'],
+    ['Alat ukur panjang dengan ketelitian 0,01 mm adalah ...',['mistar','jangka sorong','meteran kain','mikrometer sekrup'],3,'Mikrometer sekrup paling teliti: 0,01 mm.'],
+    ['Pada percobaan "pengaruh pupuk terhadap tinggi tanaman", tinggi tanaman adalah variabel ...',['bebas','terikat','kontrol','acak'],1,'Tinggi tanaman diukur dan berubah akibat pupuk, jadi variabel terikat.'],
+    ['Manakah yang termasuk besaran turunan?',['waktu','suhu','volume','panjang'],2,'Volume diturunkan dari panjang (panjang × lebar × tinggi), satuannya m³.']
+  ]},
+
+{ id:'bab2', no:2, judul:'Zat dan Perubahannya', fig:'wujud', figNama:'Es dipanaskan',
+  tujuan:['Membedakan wujud padat, cair, gas dengan model partikel','Menjelaskan perubahan wujud dan kalor yang diserap atau dilepas','Membedakan perubahan fisika dan perubahan kimia','Menghitung massa jenis'],
+  materi:`
+  <h3>A. Wujud zat dan model partikel</h3>
+  <div class="tbl"><table><tr><th></th><th>Padat</th><th>Cair</th><th>Gas</th></tr>
+   <tr><td>Bentuk</td><td>tetap</td><td>mengikuti wadah</td><td>mengikuti wadah</td></tr>
+   <tr><td>Volume</td><td>tetap</td><td>tetap</td><td>berubah (memenuhi ruang)</td></tr>
+   <tr><td>Susunan partikel</td><td>sangat rapat, teratur</td><td>rapat, tidak teratur</td><td>berjauhan</td></tr>
+   <tr><td>Gerak partikel</td><td>bergetar di tempat</td><td>bergeser, bebas berpindah</td><td>sangat bebas dan cepat</td></tr>
+   <tr><td>Gaya tarik antarpartikel</td><td>sangat kuat</td><td>lebih lemah</td><td>sangat lemah</td></tr></table></div>
+  <h3>B. Perubahan wujud zat</h3>
+  <div class="tbl"><table><tr><th>Perubahan</th><th>Dari → ke</th><th>Kalor</th><th>Contoh</th></tr>
+   <tr><td>Mencair (melebur)</td><td>padat → cair</td><td>diserap</td><td>es mencair</td></tr>
+   <tr><td>Membeku</td><td>cair → padat</td><td>dilepas</td><td>air menjadi es</td></tr>
+   <tr><td>Menguap</td><td>cair → gas</td><td>diserap</td><td>air mendidih, baju kering</td></tr>
+   <tr><td>Mengembun</td><td>gas → cair</td><td>dilepas</td><td>embun pagi, gelas es berkeringat</td></tr>
+   <tr><td>Menyublim</td><td>padat → gas</td><td>diserap</td><td>kapur barus mengecil</td></tr>
+   <tr><td>Mengkristal (deposisi)</td><td>gas → padat</td><td>dilepas</td><td>salju terbentuk di awan</td></tr></table></div>
+  <p>Pada tekanan 1 atmosfer, air murni melebur pada <b>0 °C</b> dan mendidih pada <b>100 °C</b>. Selama melebur atau mendidih, suhu tetap karena kalor dipakai untuk mengubah wujud.</p>
+  <h3>C. Perubahan fisika dan kimia</h3>
+  <p><b>Perubahan fisika</b> tidak menghasilkan zat baru (es mencair, kertas digunting, gula larut). <b>Perubahan kimia</b> menghasilkan zat baru (kayu terbakar, besi berkarat, nasi basi). Tanda reaksi kimia: perubahan warna, muncul gas, terbentuk endapan, perubahan suhu, atau perubahan bau.</p>
+  <h3>D. Kerapatan (massa jenis)</h3>
+  <p class="rumus">ρ = m / V</p>
+  <p>ρ = massa jenis (g/cm³ atau kg/m³), m = massa, V = volume. Massa jenis air 1 g/cm³. Benda dengan massa jenis lebih kecil dari air akan terapung.</p>`,
+  coba:['Tekan <b>Nyalakan pembakar</b> dan perhatikan angka suhu.','Saat es melebur, suhu berhenti di 0 °C. Kenapa?','Tunggu sampai air mendidih di 100 °C dan muncul uap.','Nyalakan <b>Tembus pandang</b>: lihat partikel padat, cair, dan gas bergerak makin cepat saat suhu naik.','Ganti <b>Besar api</b> lalu ulangi: apa yang berubah, dan apa yang tetap?'],
+  akt:[
+    {type:'sort', judul:'Perubahan fisika atau kimia?', cats:['Fisika','Kimia'], items:[['Es batu mencair',0],['Kayu terbakar',1],['Besi berkarat',1],['Gula larut dalam teh',0],['Kertas digunting',0],['Nasi menjadi basi',1],['Lilin meleleh',0],['Telur digoreng',1],['Air menguap',0],['Buah membusuk',1]]},
+    {type:'sort', judul:'Menyerap atau melepas kalor?', cats:['Menyerap','Melepas'], items:[['Mencair',0],['Membeku',1],['Menguap',0],['Mengembun',1],['Menyublim',0],['Mengkristal',1]]},
+    {type:'massajenis'}
+  ],
+  kuis:[
+    ['Zat yang bentuknya berubah sesuai wadah tetapi volumenya tetap adalah ...',['padat','cair','gas','plasma'],1,'Zat cair punya volume tetap, bentuk mengikuti wadah.'],
+    ['Kapur barus di lemari lama-lama mengecil. Peristiwa ini disebut ...',['menguap','mencair','menyublim','mengkristal'],2,'Kapur barus berubah langsung dari padat menjadi gas: menyublim.'],
+    ['Saat es sedang melebur, suhunya ...',['terus naik','tetap 0 °C','turun','naik lalu turun'],1,'Kalor dipakai untuk mengubah wujud, jadi suhu tetap di 0 °C.'],
+    ['Manakah yang merupakan perubahan kimia?',['air membeku','kertas dilipat','besi berkarat','garam larut'],2,'Karat adalah zat baru (oksida besi), jadi perubahan kimia.'],
+    ['Benda bermassa 30 g dengan volume 60 cm³ dimasukkan ke air. Benda itu ...',['tenggelam','terapung','melayang','larut'],1,'ρ = 30/60 = 0,5 g/cm³, lebih kecil dari air (1 g/cm³), maka terapung.']
+  ]},
+
+{ id:'bab3', no:3, judul:'Suhu, Kalor, dan Pemuaian', fig:'muai', figNama:'Bola dan cincin',
+  tujuan:['Mengukur suhu dan mengubah satuan antarskala termometer','Menjelaskan kalor, menghitung Q = m·c·ΔT','Membedakan konduksi, konveksi, dan radiasi','Menjelaskan pemuaian dan contohnya'],
+  materi:`
+  <h3>A. Suhu</h3>
+  <p><b>Suhu</b> adalah ukuran derajat panas atau dinginnya benda. Indra peraba tidak dapat dipercaya untuk mengukur suhu, jadi kita memakai <b>termometer</b>. Satuan SI suhu adalah kelvin (K).</p>
+  <div class="tbl"><table><tr><th>Skala</th><th>Titik beku air</th><th>Titik didih air</th><th>Banyak skala</th></tr>
+   <tr><td>Celsius (°C)</td><td>0</td><td>100</td><td>100</td></tr><tr><td>Reamur (°R)</td><td>0</td><td>80</td><td>80</td></tr>
+   <tr><td>Fahrenheit (°F)</td><td>32</td><td>212</td><td>180</td></tr><tr><td>Kelvin (K)</td><td>273</td><td>373</td><td>100</td></tr></table></div>
+  <p class="rumus">C : R : (F − 32) : (K − 273) = 5 : 4 : 9 : 5</p>
+  <h3>B. Kalor</h3>
+  <p><b>Kalor</b> adalah energi yang berpindah dari benda bersuhu tinggi ke benda bersuhu rendah. Satuannya joule (J); 1 kalori = 4,2 J (energi untuk menaikkan suhu 1 gram air sebesar 1 °C).</p>
+  <p class="rumus">Q = m × c × ΔT</p>
+  <p>Q = kalor (J), m = massa (kg), c = kalor jenis (J/kg °C), ΔT = perubahan suhu (°C). Untuk perubahan wujud: Q = m × L (L = kalor lebur atau kalor uap).</p>
+  <h4>Perpindahan kalor</h4>
+  <ul><li><b>Konduksi</b>: lewat zat perantara tanpa zat itu ikut berpindah (sendok panas di gelas teh).</li>
+  <li><b>Konveksi</b>: disertai perpindahan zat perantaranya (air mendidih berputar, angin darat dan laut).</li>
+  <li><b>Radiasi</b>: tanpa zat perantara (panas Matahari sampai ke Bumi, menghangatkan badan di dekat api unggun).</li></ul>
+  <h3>C. Pemuaian</h3>
+  <p>Benda yang dipanaskan umumnya memuai karena partikelnya bergetar makin kuat dan saling menjauh. Pemuaian panjang:</p>
+  <p class="rumus">ΔL = L₀ × α × ΔT</p>
+  <p>α = koefisien muai panjang (kuningan 19 × 10⁻⁶ /°C, besi 12 × 10⁻⁶ /°C). Contoh dalam kehidupan: celah pada sambungan rel kereta, kabel listrik dipasang kendur, keping bimetal pada setrika, tutup botol logam dibuka dengan air panas.</p>`,
+  coba:['Tekan <b>Masukkan bola</b>: bola dingin bisa lewat cincin.','<b>Panaskan bola</b>, lalu <b>Masukkan lagi</b>: bola tersangkut. Lihat diameternya di pojok kanan atas.','<b>Panaskan cincin</b>: kini bola bisa lewat. Mengapa?','<b>Dinginkan</b>: keduanya kembali ke 30 °C dan ukurannya kembali semula.','Bandingkan angka nyata: pemuaian hanya sepersekian milimeter, jadi gambarnya diperbesar.'],
+  akt:[
+    {type:'termo'},
+    {type:'kalor'},
+    {type:'sort', judul:'Konduksi, konveksi, atau radiasi?', cats:['Konduksi','Konveksi','Radiasi'], items:[['Gagang panci logam ikut panas',0],['Air mendidih berputar di panci',1],['Panas Matahari sampai ke Bumi',2],['Angin laut di siang hari',1],['Menyetrika baju',0],['Badan hangat di dekat api unggun',2]]}
+  ],
+  kuis:[
+    ['Suhu 50 °C sama dengan ... K',['223','273','323','373'],2,'K = °C + 273 = 50 + 273 = 323 K.'],
+    ['Kalor yang dibutuhkan untuk menaikkan suhu 2 kg air (c = 4.200 J/kg °C) dari 25 °C ke 75 °C adalah ...',['210.000 J','420.000 J','105.000 J','840.000 J'],1,'Q = 2 × 4.200 × 50 = 420.000 J.'],
+    ['Perpindahan kalor dari Matahari ke Bumi terjadi secara ...',['konduksi','konveksi','radiasi','induksi'],2,'Ruang angkasa hampa, jadi kalor merambat tanpa perantara: radiasi.'],
+    ['Sambungan rel kereta api diberi celah agar ...',['hemat besi','rel tidak melengkung saat memuai','kereta lebih cepat','mudah dibongkar'],1,'Saat panas rel memuai; celah memberi ruang agar rel tidak melengkung.'],
+    ['Pada percobaan bola dan cincin, bola panas tersangkut karena ...',['cincin menyusut','bola memuai','bola menjadi berat','kalor hilang'],1,'Bola yang dipanaskan memuai sehingga diameternya lebih besar dari lubang cincin.']
+  ]},
+
+{ id:'bab4', no:4, judul:'Gerak dan Gaya', fig:'gerak', figNama:'Mobil di lintasan',
+  tujuan:['Membedakan jarak dan perpindahan','Menghitung kelajuan dan kecepatan','Mengenal macam-macam gaya, termasuk gaya gesek','Menjelaskan Hukum I, II, dan III Newton'],
+  materi:`
+  <h3>A. Gerak benda</h3>
+  <p>Benda dikatakan <b>bergerak</b> jika posisinya berubah terhadap <b>titik acuan</b>. Gerak bersifat relatif: penumpang bus diam terhadap kursinya tetapi bergerak terhadap pohon di pinggir jalan. <b>Gerak semu</b> adalah gerak yang hanya tampak, misalnya pohon seolah bergerak saat kita naik mobil.</p>
+  <ul><li><b>Jarak</b>: panjang seluruh lintasan yang ditempuh (hanya punya besar).</li>
+  <li><b>Perpindahan</b>: perubahan posisi dari titik awal ke titik akhir (punya besar dan arah).</li></ul>
+  <p class="rumus">kelajuan = jarak / waktu</p> <p class="rumus">kecepatan = perpindahan / waktu</p>
+  <p>Satuan SI: m/s. Konversi: 1 km/jam = 1.000 m / 3.600 s, jadi 36 km/jam = 10 m/s.</p>
+  <p><b>Gerak lurus beraturan (GLB)</b>: lintasan lurus dengan kecepatan tetap. <b>Gerak lurus berubah beraturan (GLBB)</b>: kecepatan bertambah (dipercepat) atau berkurang (diperlambat) secara teratur, misalnya buah jatuh atau sepeda yang direm.</p>
+  <h3>B. Gaya</h3>
+  <p><b>Gaya</b> adalah tarikan atau dorongan, satuannya newton (N), diukur dengan neraca pegas (dinamometer). Gaya dapat mengubah gerak, arah, dan bentuk benda. Macam gaya: gaya otot, gaya gravitasi (berat, w = m × g), gaya magnet, gaya listrik, gaya pegas, gaya mesin, dan <b>gaya gesek</b>.</p>
+  <p>Gaya gesek arahnya berlawanan dengan arah gerak. Permukaan kasar menimbulkan gesekan lebih besar. Gesekan bisa menguntungkan (rem, ban beralur, berjalan tanpa terpeleset) atau merugikan (mesin aus, ban cepat habis).</p>
+  <div class="kotak"><b>Hukum Newton</b><ul>
+   <li><b>Hukum I (kelembaman)</b>: benda diam tetap diam dan benda bergerak tetap bergerak lurus beraturan jika resultan gaya nol. Contoh: badan terdorong ke depan saat bus mengerem.</li>
+   <li><b>Hukum II</b>: <span class="rumus" style="font-size:15px;margin:0">F = m × a</span> percepatan sebanding dengan gaya dan berbanding terbalik dengan massa.</li>
+   <li><b>Hukum III (aksi-reaksi)</b>: setiap aksi menimbulkan reaksi yang sama besar dan berlawanan arah. Contoh: dayung mendorong air ke belakang, perahu terdorong ke depan.</li></ul></div>`,
+  coba:['Pilih <b>Tarik pegas</b> 5 cm dan permukaan kayu, lalu <b>Lepaskan!</b>. Catat jarak dan waktu.','Ganti permukaan ke karpet dengan tarikan yang sama: mengapa mobil berhenti lebih cepat?','Coba di kaca: gesekan kecil, mobil meluncur jauh (Hukum I).','Tambah <b>Beban</b>: dengan gaya pegas yang sama, mobil lebih lambat (Hukum II, a = F/m).','Hitung kelajuan rata-rata = jarak / waktu dan bandingkan dengan angka di simulasi.'],
+  akt:[
+    {type:'rute'},
+    {type:'kelajuan'},
+    {type:'sort', judul:'Hukum Newton yang mana?', cats:['Hukum I','Hukum II','Hukum III'], items:[['Penumpang terdorong ke depan saat bus mengerem mendadak',0],['Roket menyemburkan gas ke bawah, roket naik',2],['Gerobak kosong lebih mudah didorong daripada gerobak penuh',1],['Taplak ditarik cepat, piring di atasnya tetap diam',0],['Perenang mendorong dinding kolam, tubuhnya meluncur',2],['Bola ditendang lebih keras melaju lebih cepat',1]]}
+  ],
+  kuis:[
+    ['Andi berjalan 4 m ke timur lalu 3 m ke utara. Perpindahannya ...',['7 m','5 m','1 m','12 m'],1,'Perpindahan = garis lurus awal–akhir = √(4² + 3²) = 5 m. Jaraknya 7 m.'],
+    ['Sepeda menempuh 300 m dalam 60 s. Kelajuannya ...',['5 m/s','18 m/s','360 m/s','0,2 m/s'],0,'v = s/t = 300/60 = 5 m/s.'],
+    ['72 km/jam sama dengan ...',['7,2 m/s','20 m/s','36 m/s','72 m/s'],1,'72 × 1.000 / 3.600 = 20 m/s.'],
+    ['Arah gaya gesek selalu ...',['searah gerak','tegak lurus gerak','berlawanan dengan arah gerak','ke atas'],2,'Gaya gesek melawan gerak benda.'],
+    ['Gaya 10 N bekerja pada benda 2 kg. Percepatannya ...',['20 m/s²','5 m/s²','0,2 m/s²','12 m/s²'],1,'a = F/m = 10/2 = 5 m/s².']
+  ]},
+
+{ id:'bab5', no:5, judul:'Klasifikasi Makhluk Hidup', fig:'mikroskop', figNama:'Mikroskop cahaya',
+  tujuan:['Membedakan makhluk hidup dan benda mati dari ciri-cirinya','Menjelaskan tujuan klasifikasi dan urutan takson','Menulis nama ilmiah dengan aturan binomial','Mengelompokkan makhluk hidup ke lima kingdom dan memakai kunci dikotomi'],
+  materi:`
+  <h3>A. Makhluk hidup atau benda mati?</h3>
+  <p>Ciri makhluk hidup: <b>bergerak</b>, <b>bernapas</b>, <b>memerlukan makanan (energi)</b>, <b>tumbuh dan berkembang</b>, <b>berkembang biak</b>, <b>peka terhadap rangsangan</b>, <b>mengeluarkan zat sisa</b>, dan <b>tersusun atas sel</b>. Sel adalah unit terkecil kehidupan; banyak sel hanya bisa dilihat dengan <b>mikroskop</b>.</p>
+  <h3>B. Mengapa dikelompokkan?</h3>
+  <p>Klasifikasi memudahkan kita mengenali, mempelajari, dan membandingkan makhluk hidup yang sangat beragam. Pengelompokan didasarkan pada persamaan dan perbedaan ciri.</p>
+  <p><b>Urutan takson</b> dari besar ke kecil: Kingdom → Filum/Divisi → Kelas → Ordo → Famili → Genus → Spesies. Makin ke bawah, anggotanya makin sedikit dan persamaannya makin banyak.</p>
+  <div class="kotak kuning"><b>Tata nama binomial (Carolus Linnaeus)</b>: nama ilmiah terdiri atas dua kata, nama genus (huruf awal kapital) dan penunjuk spesies (huruf kecil), ditulis miring atau digarisbawahi. Contoh: <i>Oryza sativa</i> (padi), <i>Panthera tigris</i> (harimau), <i>Allium cepa</i> (bawang bombai).</div>
+  <h3>C. Makhluk hidup beraneka ragam: lima kingdom</h3>
+  <div class="tbl"><table><tr><th>Kingdom</th><th>Ciri</th><th>Contoh</th></tr>
+   <tr><td>Monera</td><td>bersel satu, tanpa membran inti (prokariotik)</td><td>bakteri, <i>Escherichia coli</i></td></tr>
+   <tr><td>Protista</td><td>umumnya bersel satu, sudah bermembran inti</td><td>Paramecium, Amoeba, alga</td></tr>
+   <tr><td>Fungi</td><td>tidak berklorofil, menyerap makanan dari lingkungan</td><td>jamur tiram, ragi, kapang roti</td></tr>
+   <tr><td>Plantae</td><td>bersel banyak, berdinding sel, berklorofil (fotosintesis)</td><td>lumut, paku, padi, mangga</td></tr>
+   <tr><td>Animalia</td><td>bersel banyak, tanpa dinding sel, memakan makhluk lain</td><td>cacing, ikan, kucing</td></tr></table></div>
+  <p><b>Kunci dikotomi</b> adalah alat identifikasi berupa pasangan pernyataan yang saling bertentangan (dua pilihan) yang ditelusuri langkah demi langkah sampai nama makhluk hidup ditemukan.</p>`,
+  coba:['Tekan <b>Nyalakan lampu</b>, lalu <b>Pasang preparat</b> sel bawang merah.','Mulai dari <b>Lensa objektif</b> 4×, putar <b>makrometer</b> sampai gambar hampir jelas, lalu <b>mikrometer</b> sampai tajam.','Ganti ke 10× dan 40×: perbesaran total = okuler × objektif.','Bandingkan bawang, Hydrilla, dan air kolam: mana yang punya kloroplas? Mana yang bersel satu?','Nyalakan <b>Tembus pandang</b> untuk melihat jalannya cahaya.'],
+  akt:[
+    {type:'sort', judul:'Masuk kingdom apa?', cats:['Monera','Protista','Fungi','Plantae','Animalia'], items:[['Bakteri E. coli',0],['Paramecium',1],['Jamur tiram',2],['Pohon mangga',3],['Kucing',4],['Ragi roti',2],['Amoeba',1],['Lumut',3],['Cacing tanah',4]]},
+    {type:'order', judul:'Urutkan takson dari terbesar', items:['Kingdom','Filum','Kelas','Ordo','Famili','Genus','Spesies']},
+    {type:'dikotomi'}
+  ],
+  kuis:[
+    ['Penulisan nama ilmiah padi yang benar adalah ...',['Oryza Sativa','oryza sativa','<i>Oryza sativa</i>','<i>Oryza Sativa</i>'],2,'Genus berhuruf awal kapital, spesies huruf kecil, ditulis miring.'],
+    ['Takson yang anggotanya paling banyak adalah ...',['spesies','genus','famili','kingdom'],3,'Kingdom adalah takson tertinggi dengan anggota paling banyak.'],
+    ['Makhluk hidup bersel satu yang belum memiliki membran inti termasuk kingdom ...',['Protista','Monera','Fungi','Plantae'],1,'Monera (bakteri) bersifat prokariotik.'],
+    ['Perbesaran total mikroskop dengan okuler 10× dan objektif 40× adalah ...',['50×','400×','40×','4.000×'],1,'Perbesaran total = 10 × 40 = 400 kali.'],
+    ['Jamur dikelompokkan terpisah dari tumbuhan karena jamur ...',['tidak berklorofil','bersel satu','tidak bernapas','tidak berkembang biak'],0,'Jamur tidak berfotosintesis; ia menyerap makanan dari lingkungan.']
+  ]},
+
+{ id:'bab6', no:6, judul:'Ekologi dan Keanekaragaman Hayati Indonesia', fig:'akuarium', figNama:'Akuarium ekosistem',
+  tujuan:['Membedakan komponen biotik dan abiotik','Menjelaskan peran produsen, konsumen, pengurai dalam rantai dan jaring makanan','Mengenali pola interaksi (simbiosis, kompetisi, predasi)','Menjelaskan keanekaragaman hayati Indonesia, pengaruh manusia, dan konservasi'],
+  materi:`
+  <h3>A. Pengaruh lingkungan terhadap organisme</h3>
+  <p><b>Ekosistem</b> adalah kesatuan makhluk hidup dengan lingkungannya yang saling memengaruhi. Komponennya: <b>biotik</b> (makhluk hidup: tumbuhan, hewan, jamur, bakteri) dan <b>abiotik</b> (tak hidup: air, udara, cahaya, suhu, tanah, batu). Tingkatan organisasi: individu → populasi → komunitas → ekosistem → bioma → biosfer.</p>
+  <h3>B. Interaksi komponen ekosistem</h3>
+  <ul><li><b>Produsen</b>: membuat makanan sendiri lewat fotosintesis (tumbuhan hijau).</li>
+  <li><b>Konsumen</b>: memakan makhluk lain (konsumen I pemakan tumbuhan, konsumen II, III, dan seterusnya).</li>
+  <li><b>Pengurai (dekomposer)</b>: menguraikan sisa makhluk hidup menjadi zat yang dapat dipakai lagi (bakteri, jamur).</li></ul>
+  <p><b>Rantai makanan</b> adalah peristiwa makan dan dimakan dalam urutan tertentu, contohnya padi → tikus → ular → elang. Beberapa rantai yang saling berhubungan membentuk <b>jaring makanan</b>. Energi berkurang di setiap tingkat (piramida energi).</p>
+  <div class="kotak"><b>Pola interaksi</b><ul>
+   <li><b>Mutualisme</b>: keduanya untung (lebah dan bunga).</li>
+   <li><b>Komensalisme</b>: satu untung, yang lain tidak dirugikan (anggrek menempel di pohon).</li>
+   <li><b>Parasitisme</b>: satu untung, yang lain rugi (benalu pada pohon, kutu pada kucing).</li>
+   <li><b>Kompetisi</b> (persaingan) dan <b>predasi</b> (pemangsaan).</li></ul></div>
+  <h3>C. Keanekaragaman hayati Indonesia</h3>
+  <p>Indonesia termasuk negara megabiodiversitas. Garis <b>Wallace</b> dan <b>Weber</b> membagi persebaran fauna: <b>Asiatis</b> di barat (Sumatra, Jawa, Kalimantan: harimau, gajah, orang utan), <b>peralihan</b> (Sulawesi, Nusa Tenggara: anoa, babirusa, komodo), dan <b>Australis</b> di timur (Papua: kanguru pohon, cendrawasih, kasuari).</p>
+  <h3>D. Pengaruh manusia</h3>
+  <p>Penebangan hutan, perburuan liar, alih fungsi lahan untuk perkebunan, serta pencemaran air, udara, dan tanah mengancam ekosistem. Ikan mati di sungai tercemar, misalnya, karena oksigen terlarut turun.</p>
+  <h3>E. Konservasi</h3>
+  <p><b>Konservasi</b> adalah pengelolaan sumber daya alam hayati secara bijaksana agar lestari. <b>In situ</b>: di habitat aslinya (taman nasional, cagar alam, suaka margasatwa: TN Komodo, TN Ujung Kulon). <b>Ex situ</b>: di luar habitat asli (kebun binatang, kebun raya, penangkaran, bank benih).</p>`,
+  coba:['Perhatikan angka <b>Oksigen</b>, lalu <b>Jalankan 1 hari</b>.','Matikan <b>Aerator</b> dan <b>Lampu</b>, jalankan sehari lagi: apa yang terjadi pada ikan?','Nyalakan lampu kembali: tumbuhan berfotosintesis dan menambah oksigen.','<b>Tambah ikan</b> dan <b>Beri makan</b> berlebihan: bagaimana pengaruh manusia terhadap ekosistem kecil ini?','Nyalakan <b>Label</b>: mana yang biotik, mana yang abiotik?','Putar akuarium ke belakang dan nyalakan <b>Tembus pandang</b>: lihat cara pompa udara (aerator) bekerja dengan magnet dan diafragma karet.'],
+  akt:[
+    {type:'sort', judul:'Biotik atau abiotik?', cats:['Biotik','Abiotik'], items:[['Rumput',0],['Cahaya matahari',1],['Cacing',0],['Batu',1],['Jamur',0],['Air',1],['Bakteri',0],['Suhu',1]]},
+    {type:'order', judul:'Susun rantai makanan sawah', soal:'Mulai dari produsen.', items:['Padi','Tikus','Ular','Elang']},
+    {type:'sort', judul:'Pola interaksi apa?', cats:['Mutualisme','Komensalisme','Parasitisme'], items:[['Lebah dan bunga',0],['Benalu dan pohon mangga',2],['Anggrek dan pohon',1],['Kutu dan kucing',2],['Burung jalak dan kerbau',0],['Ikan remora dan hiu',1]]},
+    {type:'sort', judul:'Fauna Indonesia: tipe apa?', cats:['Asiatis','Peralihan','Australis'], items:[['Harimau sumatra',0],['Anoa',1],['Cendrawasih',2],['Gajah',0],['Komodo',1],['Kanguru pohon',2],['Orang utan',0],['Babirusa',1]]}
+  ],
+  kuis:[
+    ['Manakah komponen abiotik?',['jamur','cacing','cahaya','lumut'],2,'Cahaya tidak hidup, jadi abiotik.'],
+    ['Dalam rantai makanan padi → tikus → ular → elang, ular berperan sebagai ...',['produsen','konsumen I','konsumen II','pengurai'],2,'Ular memakan tikus (konsumen I), jadi ular konsumen II.'],
+    ['Hubungan bunga dan lebah termasuk ...',['parasitisme','mutualisme','komensalisme','kompetisi'],1,'Lebah mendapat nektar, bunga terbantu penyerbukannya.'],
+    ['Anoa dan komodo termasuk fauna tipe ...',['Asiatis','Australis','peralihan','Eropa'],2,'Sulawesi dan Nusa Tenggara berada di antara garis Wallace dan Weber.'],
+    ['Pelestarian komodo di Taman Nasional Komodo termasuk konservasi ...',['ex situ','in situ','buatan','genetik'],1,'Dilakukan di habitat aslinya, jadi in situ.']
+  ]},
+
+{ id:'bab7', no:7, judul:'Bumi dan Tata Surya', fig:'orrery', figNama:'Orrery Matahari–Bumi–Bulan',
+  tujuan:['Menyebutkan anggota tata surya dan urutan planet','Menjelaskan akibat rotasi dan revolusi Bumi','Menjelaskan fase Bulan dan gerhana','Mengenal karakteristik Matahari'],
+  materi:`
+  <h3>A. Sistem tata surya</h3>
+  <p>Tata surya terdiri atas <b>Matahari</b> sebagai pusat, <b>8 planet</b>, planet kerdil (misalnya Pluto), satelit, asteroid, komet, dan meteoroid. Urutan planet dari Matahari: <b>Merkurius, Venus, Bumi, Mars, Jupiter, Saturnus, Uranus, Neptunus</b>.</p>
+  <ul><li><b>Planet dalam</b> (Merkurius–Mars): kecil, berbatu. <b>Planet luar</b> (Jupiter–Neptunus): raksasa gas dan es, bercincin.</li>
+  <li><b>Planet inferior</b> (orbitnya di dalam orbit Bumi): Merkurius, Venus. <b>Planet superior</b>: Mars sampai Neptunus.</li>
+  <li><b>Sabuk asteroid</b> terletak di antara Mars dan Jupiter. <b>Komet</b> berekor saat mendekati Matahari. Meteoroid yang terbakar di atmosfer disebut <b>meteor</b> (bintang jatuh); yang sampai ke permukaan Bumi disebut <b>meteorit</b>.</li></ul>
+  <h3>B. Bumi dan satelitnya</h3>
+  <p><b>Rotasi Bumi</b> (berputar pada porosnya ±24 jam) menyebabkan siang dan malam, gerak semu harian Matahari (terbit di timur, terbenam di barat), dan perbedaan waktu (WIB, WITA, WIT berselisih 1 jam). <b>Revolusi Bumi</b> (mengelilingi Matahari ±365,25 hari) dengan sumbu miring <b>23,5°</b> menyebabkan pergantian musim dan gerak semu tahunan Matahari; kelebihan ¼ hari dikumpulkan menjadi tahun kabisat setiap 4 tahun. Indonesia dekat khatulistiwa, sehingga hanya mengenal musim hujan dan kemarau.</p>
+  <p><b>Bulan</b> berotasi dan berevolusi dengan waktu yang sama (±27,3 hari), sehingga sisi yang menghadap Bumi selalu sama. <b>Fase Bulan</b> berulang setiap ±29,5 hari: Bulan baru → sabit → kuartal pertama → cembung → purnama → cembung → kuartal ketiga → sabit → Bulan baru. Gravitasi Bulan menyebabkan <b>pasang surut</b> air laut.</p>
+  <div class="kotak"><b>Gerhana</b><ul>
+   <li><b>Gerhana Bulan</b>: Bumi berada di antara Matahari dan Bulan; terjadi saat purnama.</li>
+   <li><b>Gerhana Matahari</b>: Bulan berada di antara Matahari dan Bumi; terjadi saat Bulan baru.</li></ul>
+   Gerhana tidak terjadi setiap bulan karena orbit Bulan miring sekitar 5° terhadap orbit Bumi.</div>
+  <h3>C. Mengenal Matahari</h3>
+  <p>Matahari adalah <b>bintang</b> terdekat, bola gas panas yang memancarkan cahaya sendiri dari reaksi fusi di intinya. Lapisannya: inti, zona radiasi, zona konveksi, fotosfer (permukaan, ±5.500 °C), kromosfer, dan korona. Bagi manusia, Matahari adalah sumber cahaya dan energi untuk fotosintesis, pengatur iklim, dan sumber energi surya.</p>`,
+  coba:['Tekan <b>Putar 1 hari</b>: Bumi berotasi sekali; titik Indonesia mengalami siang lalu malam.','Tekan <b>Putar 1 bulan</b> dan amati nama fase Bulan di pojok kanan atas.','Pakai <b>Lompat ke</b> → Purnama: di mana posisi Bulan terhadap Bumi dan Matahari?','<b>Putar 1 tahun</b>: arah sumbu Bumi tetap, sehingga belahan utara dan selatan bergantian condong ke Matahari (musim).','Setelah 1 tahun, titik Indonesia bergeser ¼ putaran (6 jam) karena satu tahun = 365,25 hari. Empat kali ¼ hari inilah yang dijadikan 1 hari tambahan di tahun kabisat.','Nyalakan <b>Tembus pandang</b> untuk melihat roda gigi yang mengatur perbandingan gerak.'],
+  akt:[
+    {type:'order', judul:'Urutkan planet dari Matahari', items:['Merkurius','Venus','Bumi','Mars','Jupiter','Saturnus','Uranus','Neptunus']},
+    {type:'planet'},
+    {type:'sort', judul:'Akibat rotasi atau revolusi Bumi?', cats:['Rotasi','Revolusi'], items:[['Siang dan malam',0],['Pergantian musim',1],['Matahari terbit di timur',0],['Perbedaan waktu WIB–WIT',0],['Tahun kabisat',1],['Rasi bintang berbeda tiap bulan',1]]}
+  ],
+  kuis:[
+    ['Planet terbesar di tata surya adalah ...',['Saturnus','Bumi','Jupiter','Neptunus'],2,'Jupiter adalah planet terbesar.'],
+    ['Pergantian siang dan malam disebabkan oleh ...',['revolusi Bumi','rotasi Bumi','revolusi Bulan','rotasi Matahari'],1,'Bumi berputar pada porosnya sehingga sisi yang menghadap Matahari berganti.'],
+    ['Gerhana Bulan terjadi saat ...',['Bulan di antara Matahari dan Bumi','Bumi di antara Matahari dan Bulan','Matahari di antara Bumi dan Bulan','Bulan baru'],1,'Bayangan Bumi menutupi Bulan; terjadi saat purnama.'],
+    ['Sisi Bulan yang menghadap Bumi selalu sama karena ...',['Bulan tidak berotasi','kala rotasi sama dengan kala revolusinya','Bulan terlalu jauh','Bumi berotasi'],1,'Bulan berotasi dan berevolusi dalam ±27,3 hari.'],
+    ['Sabuk asteroid terletak di antara orbit ...',['Bumi dan Mars','Mars dan Jupiter','Jupiter dan Saturnus','Venus dan Bumi'],1,'Sabuk asteroid berada di antara Mars dan Jupiter.']
+  ]}
+];
+
+/* ---------- helpers ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const el = (tag, attrs = {}, html = '') => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (html) e.innerHTML = html; return e; };
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const fmt = (x, d = 1) => x.toLocaleString('id-ID', { maximumFractionDigits: d, minimumFractionDigits: 0 });
+const shake = n => { n.classList.remove('shake'); void n.offsetWidth; n.classList.add('shake'); };
+// ponytail: localStorage only remembers quiz progress for this viewer; page works without it
+const store = { get(){ try { return JSON.parse(localStorage.getItem('ipa7') || '{}'); } catch { return {}; } },
+  set(v){ try { localStorage.setItem('ipa7', JSON.stringify(v)); } catch {} } };
+
+/* ---------- activities ---------- */
+const AKT = {
+  sort(a){
+    const box = el('div', { class:'akt' }, `<b class="t">LATIHAN · KELOMPOKKAN</b><h4>${a.judul}</h4>${a.soal ? `<p class="q">${a.soal}</p>` : '<p class="q">Tekan kelompok yang tepat untuk setiap kartu.</p>'}`);
+    const score = el('div', { class:'score' }); let benar = 0, selesai = 0;
+    const upd = () => score.textContent = `Benar ${benar} dari ${a.items.length}` + (selesai === a.items.length ? (benar === a.items.length ? ' · Sempurna!' : ' · Coba ulangi untuk yang merah') : '');
+    for (const [txt, cat] of shuffle(a.items)){
+      const row = el('div', { class:'sortrow' }, `<span class="it">${txt}</span>`), opts = el('div', { class:'opts' });
+      a.cats.forEach((c, i) => { const b = el('button', { class:'chip', type:'button' }, c);
+        b.onclick = () => { if (row.dataset.done) return; row.dataset.done = 1; selesai++;
+          if (i === cat){ b.classList.add('ok'); benar++; } else { b.classList.add('bad'); opts.children[cat].classList.add('ok'); }
+          for (const x of opts.children) x.disabled = true; upd(); };
+        opts.appendChild(b); });
+      row.appendChild(opts); box.appendChild(row);
+    }
+    const again = el('button', { class:'btn ghost', type:'button', style:'margin-top:10px' }, 'Ulangi');
+    again.onclick = () => box.replaceWith(AKT.sort(a));
+    upd(); box.append(score, again); return box;
+  },
+  order(a){
+    const box = el('div', { class:'akt' }, `<b class="t">LATIHAN · URUTKAN</b><h4>${a.judul}</h4><p class="q">${a.soal || 'Tekan kartu sesuai urutan yang benar.'}</p>`);
+    const chain = el('div', { class:'chain', 'aria-live':'polite' }), pool = el('div'), fb = el('p', { class:'fb' });
+    let n = 0;
+    for (const t of shuffle(a.items)){ const b = el('button', { class:'chip', type:'button' }, t);
+      b.onclick = () => { if (t === a.items[n]){ if (n) chain.appendChild(el('span', { class:'ar' }, '→')); chain.appendChild(el('span', { class:'lk' }, t)); b.remove(); n++;
+          fb.className = 'fb ok'; fb.textContent = n === a.items.length ? 'Urutan benar semua!' : 'Tepat, lanjutkan.'; }
+        else { shake(b); fb.className = 'fb bad'; fb.textContent = `Belum tepat. Yang ke-${n + 1} bukan "${t}".`; } };
+      pool.appendChild(b); }
+    const again = el('button', { class:'btn ghost', type:'button', style:'margin-top:8px' }, 'Ulangi');
+    again.onclick = () => box.replaceWith(AKT.order(a));
+    box.append(chain, pool, fb, again); return box;
+  },
+  massajenis(){
+    const B = [['Gabus',0.24],['Kayu jati',0.7],['Es',0.92],['Lilin',0.9],['Aluminium',2.7],['Besi',7.9]];
+    const box = el('div', { class:'akt' }, `<b class="t">COBA HITUNG</b><h4>Terapung atau tenggelam?</h4><p class="q">Pilih benda dan atur volumenya. Massa jenis tiap bahan tetap, jadi massa ikut berubah.</p>
+      <div class="row2"><div><label class="l" for="mj-b">Bahan</label><select id="mj-b">${B.map(([n, r], i) => `<option value="${i}">${n}</option>`).join('')}</select>
+      <label class="l" for="mj-v">Volume: <span id="mj-vv"></span> cm³</label><input id="mj-v" type="range" min="10" max="200" value="50"></div>
+      <div><svg viewBox="0 0 160 120" width="100%" style="max-width:220px" aria-hidden="true"><rect x="10" y="10" width="140" height="100" rx="6" fill="#fff" stroke="#231e16" stroke-width="1.5"/><rect x="11" y="45" width="138" height="64" fill="#cfe9f0"/><line x1="11" y1="45" x2="149" y2="45" stroke="#3d6fb6" stroke-width="1.5"/><rect id="mj-o" x="62" width="36" height="36" rx="3" fill="#c98a4b" stroke="#231e16" stroke-width="1.5"/></svg></div></div>
+      <p class="out" id="mj-o2"></p>`);
+    const go = () => { const [n, r] = B[$('#mj-b', box).value], v = +$('#mj-v', box).value, m = r * v;
+      $('#mj-vv', box).textContent = v; const s = Math.cbrt(v) * 6.5, o = $('#mj-o', box);
+      o.setAttribute('width', s); o.setAttribute('height', s); o.setAttribute('x', 80 - s/2);
+      o.setAttribute('y', r < 1 ? 45 - s*(1 - r) : 109 - s);
+      $('#mj-o2', box).innerHTML = `m = ${fmt(m)} g · ρ = m / V = ${fmt(m)} / ${v} = <b>${fmt(r, 2)} g/cm³</b> → ${r < 1 ? 'lebih kecil dari air, <b>terapung</b>' : 'lebih besar dari air, <b>tenggelam</b>'}`; };
+    box.addEventListener('input', go); requestAnimationFrame(go); return box;
+  },
+  termo(){
+    const box = el('div', { class:'akt' }, `<b class="t">COBA UBAH</b><h4>Empat termometer, satu suhu</h4>
+      <label class="l" for="tm">Suhu: <span id="tmv"></span> °C</label><input id="tm" type="range" min="-20" max="120" value="30">
+      <div class="thermos" id="ths"></div><p class="tip">Rumus: R = 4/5 C · F = 9/5 C + 32 · K = C + 273</p>`);
+    const sc = [['°C', c => c], ['°R', c => c*4/5], ['°F', c => c*9/5 + 32], ['K', c => c + 273]];
+    $('#ths', box).innerHTML = sc.map(([u]) => `<div class="th"><div class="tube"><i></i></div><div class="bulb"></div><span class="v"></span><span>${u}</span></div>`).join('');
+    const go = () => { const c = +$('#tm', box).value; $('#tmv', box).textContent = c;
+      box.querySelectorAll('.th').forEach((t, i) => { t.querySelector('i').style.height = ((c + 20) / 140 * 100) + '%'; t.querySelector('.v').textContent = fmt(sc[i][1](c)); }); };
+    box.addEventListener('input', go); requestAnimationFrame(go); return box;
+  },
+  kalor(){
+    const Z = [['Air', 4200], ['Aluminium', 900], ['Besi', 460], ['Tembaga', 390], ['Minyak goreng', 2000]];
+    const box = el('div', { class:'akt' }, `<b class="t">COBA HITUNG</b><h4>Berapa kalor yang dibutuhkan?</h4>
+      <div class="row2"><div><label class="l" for="kz">Zat</label><select id="kz">${Z.map(([n, c], i) => `<option value="${i}">${n} (c = ${c.toLocaleString('id-ID')} J/kg °C)</option>`).join('')}</select>
+      <label class="l" for="km">Massa: <span id="kmv"></span> kg</label><input id="km" type="range" min="0.1" max="5" step="0.1" value="1"></div>
+      <div><label class="l" for="kt">Kenaikan suhu ΔT: <span id="ktv"></span> °C</label><input id="kt" type="range" min="1" max="80" value="20"></div></div>
+      <p class="out" id="ko"></p>`);
+    const go = () => { const [n, c] = Z[$('#kz', box).value], m = +$('#km', box).value, t = +$('#kt', box).value, q = m * c * t;
+      $('#kmv', box).textContent = fmt(m); $('#ktv', box).textContent = t;
+      $('#ko', box).innerHTML = `Q = m × c × ΔT = ${fmt(m)} × ${c.toLocaleString('id-ID')} × ${t} = <span class="big">${Math.round(q).toLocaleString('id-ID')} J</span> (${fmt(q/4.2/1000, 1)} kkal)`; };
+    box.addEventListener('input', go); requestAnimationFrame(go); return box;
+  },
+  rute(){
+    const N = 8, U = 30, box = el('div', { class:'akt' }, `<b class="t">COBA JALAN</b><h4>Jarak atau perpindahan?</h4>
+      <p class="q">Satu kotak = 100 m. Jalan dari rumah (titik hitam) dengan tombol arah. Jarak = seluruh langkahmu; perpindahan = garis lurus rumah ke posisi akhir.</p>
+      <div class="route"><svg viewBox="0 0 ${N*U} ${N*U}" id="rs" role="img" aria-label="Peta kotak rute"></svg>
+      <div><div class="pad">
+        <span></span><button class="btn ghost" type="button" data-d="0,-1" aria-label="Utara">U</button><span></span>
+        <button class="btn ghost" type="button" data-d="-1,0" aria-label="Barat">B</button><button class="btn" type="button" data-r="1">Ulang</button><button class="btn ghost" type="button" data-d="1,0" aria-label="Timur">T</button>
+        <span></span><button class="btn ghost" type="button" data-d="0,1" aria-label="Selatan">S</button><span></span></div>
+      <p class="out" id="ro" aria-live="polite"></p></div></div>`);
+    let p = [[2, 5]];
+    const draw = () => { const [x0, y0] = p[0], [x, y] = p[p.length - 1];
+      let g = ''; for (let i = 0; i <= N; i++) g += `<line x1="${i*U}" y1="0" x2="${i*U}" y2="${N*U}" stroke="#e5dfd2"/><line x1="0" y1="${i*U}" x2="${N*U}" y2="${i*U}" stroke="#e5dfd2"/>`;
+      g += `<polyline points="${p.map(([a, b]) => `${a*U},${b*U}`).join(' ')}" fill="none" stroke="#f4b829" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>`;
+      if (p.length > 1) g += `<line x1="${x0*U}" y1="${y0*U}" x2="${x*U}" y2="${y*U}" stroke="#3d6fb6" stroke-width="2.5" stroke-dasharray="6 4"/>`;
+      g += `<circle cx="${x0*U}" cy="${y0*U}" r="7" fill="#231e16"/><circle cx="${x*U}" cy="${y*U}" r="7" fill="#d8432f" stroke="#231e16" stroke-width="1.5"/><text x="4" y="14" font-size="11" font-family="monospace" fill="#5b5244">U ↑</text>`;
+      $('#rs', box).innerHTML = g;
+      const jarak = (p.length - 1) * 100, pind = Math.hypot(x - x0, y - y0) * 100;
+      $('#ro', box).innerHTML = `Jarak: <b>${jarak} m</b><br>Perpindahan: <b>${fmt(pind, 0)} m</b>${jarak && Math.round(pind) === 0 ? ' (kembali ke rumah!)' : ''}`; };
+    box.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.r) p = [[2, 5]];
+      else { const [dx, dy] = b.dataset.d.split(',').map(Number), [x, y] = p[p.length - 1], nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx > N || ny > N) return shake(b); p.push([nx, ny]); }
+      draw(); });
+    requestAnimationFrame(draw); return box;
+  },
+  kelajuan(){
+    const box = el('div', { class:'akt' }, `<b class="t">COBA HITUNG</b><h4>Kelajuan dan satuannya</h4>
+      <div class="row2"><div><label class="l" for="vs">Jarak: <span id="vsv"></span> m</label><input id="vs" type="range" min="10" max="2000" step="10" value="300"></div>
+      <div><label class="l" for="vt">Waktu: <span id="vtv"></span> s</label><input id="vt" type="range" min="1" max="600" value="60"></div></div>
+      <p class="out" id="vo"></p><p class="tip" id="vc"></p>`);
+    const go = () => { const s = +$('#vs', box).value, t = +$('#vt', box).value, v = s / t;
+      $('#vsv', box).textContent = s.toLocaleString('id-ID'); $('#vtv', box).textContent = t;
+      $('#vo', box).innerHTML = `v = s / t = ${s.toLocaleString('id-ID')} / ${t} = <span class="big">${fmt(v, 2)} m/s</span> = ${fmt(v*3.6, 1)} km/jam`;
+      $('#vc', box).textContent = v < 2 ? 'Setara orang berjalan kaki (±1,4 m/s).' : v < 7 ? 'Setara bersepeda santai.' : v < 15 ? 'Setara sepeda motor di jalan kota.' : 'Lebih cepat dari mobil di jalan kota.'; };
+    box.addEventListener('input', go); requestAnimationFrame(go); return box;
+  },
+  dikotomi(){
+    const K = { q:'Hewan bertulang belakang?', y:{ q:'Hidup di air dan bernapas dengan insang seumur hidup?', y:'Ikan mas',
+        t:{ q:'Tubuh ditutupi bulu?', y:{ q:'Punya sayap dan paruh?', y:'Ayam', t:'Kucing' }, t:{ q:'Kulit bersisik kering?', y:'Ular', t:'Katak' } } },
+      t:{ q:'Punya 6 kaki?', y:'Kupu-kupu', t:{ q:'Tubuh lunak bercangkang?', y:'Siput', t:'Cacing tanah' } } };
+    const box = el('div', { class:'akt dk' }, `<b class="t">COBA IDENTIFIKASI</b><h4>Kunci dikotomi hewan</h4><p class="q">Pikirkan salah satu: ikan mas, ayam, kucing, ular, katak, kupu-kupu, siput, cacing tanah. Jawab pertanyaannya.</p><div id="dk"></div>`);
+    const run = (node, path) => { const d = $('#dk', box);
+      if (typeof node === 'string'){ d.innerHTML = `<div class="ans">Itu ${node.toLowerCase()}!</div><div class="path">${path.join(' → ')}</div>`;
+        const b = el('button', { class:'btn', type:'button', style:'margin-top:8px' }, 'Ulangi'); b.onclick = () => run(K, []); d.appendChild(b); return; }
+      d.innerHTML = `<div class="step">${path.length + 1}. ${node.q}</div>`;
+      const ya = el('button', { class:'chip', type:'button' }, 'Ya'), tdk = el('button', { class:'chip', type:'button' }, 'Tidak');
+      ya.onclick = () => run(node.y, [...path, `${path.length + 1}a`]); tdk.onclick = () => run(node.t, [...path, `${path.length + 1}b`]);
+      d.append(ya, tdk); if (path.length) d.appendChild(el('div', { class:'path' }, 'Jejak: ' + path.join(' → '))); };
+    run(K, []); return box;
+  },
+  planet(){
+    // jarak (SA), kala revolusi, satelit: NASA Planetary Fact Sheet; jumlah satelit Jupiter/Saturnus terus bertambah
+    const P = [['Merkurius','#a8a29a',8,'0,39 SA','88 hari','0','Planet terkecil dan terdekat dengan Matahari.'],
+      ['Venus','#e3c57a',13,'0,72 SA','225 hari','0','Planet terpanas (±465 °C) karena atmosfer CO₂ tebal; berotasi berlawanan arah.'],
+      ['Bumi','#4f8fd1',13,'1 SA','365,25 hari','1','Satu-satunya planet yang diketahui memiliki kehidupan dan air cair di permukaan.'],
+      ['Mars','#c8603d',10,'1,52 SA','687 hari','2','Planet merah karena tanahnya mengandung besi oksida; satelitnya Fobos dan Deimos.'],
+      ['Jupiter','#d6a77a',34,'5,2 SA','11,9 tahun','lebih dari 90','Planet terbesar; Bintik Merah Raksasa adalah badai yang sangat besar.'],
+      ['Saturnus','#e6cf8f',29,'9,5 SA','29,5 tahun','lebih dari 140','Cincinnya yang indah tersusun dari es dan batuan.'],
+      ['Uranus','#9fd7dc',19,'19,2 SA','84 tahun','27','Sumbu rotasinya hampir rebah, seolah berguling mengelilingi Matahari.'],
+      ['Neptunus','#4b6fd1',19,'30,1 SA','165 tahun','16','Planet terjauh dengan angin tercepat di tata surya.']];
+    const box = el('div', { class:'akt' }, `<b class="t">JELAJAHI</b><h4>Kenalan dengan 8 planet</h4><p class="q">Tekan sebuah planet. Ukuran dibandingkan kira-kira, jaraknya tidak sebanding.</p><div class="planets" id="pl"><svg width="34" height="70" aria-hidden="true"><circle cx="-20" cy="35" r="52" fill="#ffd34d"/></svg></div><div class="pinfo" id="pi" aria-live="polite"></div>`);
+    P.forEach((p, i) => { const r = p[2], b = el('button', { type:'button', 'aria-label':p[0] },
+        `<svg width="${r*2 + (i === 5 ? 22 : 6)}" height="72" aria-hidden="true">${i === 5 ? `<ellipse cx="${r + 11}" cy="36" rx="${r + 10}" ry="5" fill="none" stroke="#d9c38a" stroke-width="3"/>` : ''}<circle cx="${r + (i === 5 ? 11 : 3)}" cy="36" r="${r}" fill="${p[1]}"/></svg>`);
+      b.onclick = () => { box.querySelectorAll('.planets button').forEach(x => x.classList.toggle('sel', x === b));
+        $('#pi', box).innerHTML = `<h4 style="margin:0">${i + 1}. ${p[0]}</h4><div class="tbl"><table><tr><th>Jarak rata-rata</th><th>Kala revolusi</th><th>Satelit</th></tr><tr><td>${p[3]}</td><td>${p[4]}</td><td>${p[5]}</td></tr></table></div><p style="margin:0">${p[6]}</p><p class="tip">1 SA (satuan astronomi) = jarak rata-rata Bumi–Matahari ≈ 150 juta km.</p>`; };
+      $('#pl', box).appendChild(b); });
+    requestAnimationFrame(() => box.querySelectorAll('.planets button')[2].click()); return box;
+  }
+};
+
+/* ---------- quiz ---------- */
+function quiz(b){
+  const box = el('section', { class:'quiz', 'aria-labelledby':`q-${b.id}` }, `<h3 id="q-${b.id}">Kuis Bab ${b.no}</h3><p class="tip">Pilih satu jawaban. Penjelasan muncul setelah kamu menjawab.</p>`);
+  let benar = 0, dijawab = 0; const res = el('div', { class:'qres', 'aria-live':'polite' });
+  b.kuis.forEach(([soal, opsi, kunci, ex], n) => {
+    const q = el('div', { class:'qq' }, `<p>${n + 1}. ${soal}</p>`), os = el('div', { class:'opts' }), exp = el('div', { class:'ex' });
+    opsi.forEach((o, i) => { const bt = el('button', { class:'opt', type:'button' }, `${'ABCD'[i]}. ${o}`);
+      bt.onclick = () => { if (q.dataset.done) return; q.dataset.done = 1; dijawab++;
+        os.children[kunci].classList.add('ok'); if (i !== kunci) bt.classList.add('bad'); else benar++;
+        exp.innerHTML = (i === kunci ? '<b style="color:var(--ok)">Benar.</b> ' : '<b style="color:var(--bad)">Belum tepat.</b> ') + ex;
+        if (dijawab === b.kuis.length) selesai(); };
+      os.appendChild(bt); });
+    q.append(os, exp); box.appendChild(q); });
+  const selesai = () => { const s = store.get(); s[b.id] = Math.max(s[b.id] || 0, benar); store.set(s); progress();
+    res.innerHTML = `<span class="big">${benar}/${b.kuis.length}</span><span>${benar === b.kuis.length ? 'Luar biasa, semua benar!' : benar >= 3 ? 'Bagus! Baca lagi penjelasan yang belum tepat.' : 'Ayo baca ulang materinya lalu coba lagi.'}</span>`;
+    const u = el('button', { class:'btn ghost', type:'button' }, 'Ulangi kuis'); u.onclick = () => box.replaceWith(quiz(b)); res.appendChild(u); };
+  box.appendChild(res); return box;
+}
+
+/* ---------- render ---------- */
+const nav = $('#nav'), cards = $('#cards'), babs = $('#babs');
+for (const b of BAB){
+  nav.appendChild(el('a', { href:'#' + b.id, 'data-id':b.id }, `Bab ${b.no}`));
+  cards.appendChild(el('a', { href:'#' + b.id, 'data-id':b.id }, `<b>BAB ${b.no}</b><span>${b.judul}</span><em>Simulasi: ${b.figNama}</em>`));
+  const s = el('section', { class:'bab', id:b.id });
+  s.innerHTML = `<header><div class="no">BAB ${b.no}</div><h2>${b.judul}</h2></header>
+    <div class="tujuan"><b>TUJUAN PEMBELAJARAN</b><ul>${b.tujuan.map(t => `<li>${t}</li>`).join('')}</ul></div>
+    <div class="two"><div class="materi">${b.materi}</div>
+      <aside><div class="sim"><div class="cap"><span>SIMULASI · ${b.figNama.toUpperCase()}</span><a href="fig/${b.fig}.html" target="_blank" rel="noopener">Layar penuh ↗</a></div>
+        <iframe src="about:blank" data-src="fig/${b.fig}.html" title="Simulasi ${b.figNama}" loading="lazy"></iframe></div>
+        <div class="akt"><b class="t">COBA INI DI SIMULASI</b><ol class="coba">${b.coba.map(c => `<li>${c}</li>`).join('')}</ol></div>
+      </aside></div>
+    <h3>Latihan</h3><div class="acts"></div>`;
+  const acts = $('.acts', s); for (const a of b.akt) acts.appendChild(AKT[a.type](a));
+  s.appendChild(quiz(b)); babs.appendChild(s);
+}
+// load a figure only when its chapter is near the screen (seven figures at once would be heavy on a phone)
+const io = new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting){ const f = e.target; f.src = f.dataset.src; io.unobserve(f); } }, { rootMargin:'400px' });
+document.querySelectorAll('iframe[data-src]').forEach(f => io.observe(f));
+// current chapter in the nav
+const cur = new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting){
+  nav.querySelectorAll('a').forEach(a => a.classList.toggle('cur', a.dataset.id === e.target.id));
+  // scroll only the pill bar sideways: scrollIntoView here would also cancel the page's own smooth scroll
+  const a = nav.querySelector(`[data-id="${e.target.id}"]`); if (a) nav.scrollTo({ left: a.offsetLeft - nav.clientWidth/2 + a.offsetWidth/2, behavior:'smooth' }); } }, { rootMargin:'-45% 0px -50% 0px' });
+document.querySelectorAll('.bab').forEach(s => cur.observe(s));
+// in-page links (cards, pills, brand): scroll by hand so nothing else can interrupt it
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+document.addEventListener('click', e => { const a = e.target.closest('a[href^="#"]'); if (!a) return;
+  const t = document.getElementById(a.getAttribute('href').slice(1)); if (!t) return; e.preventDefault();
+  scrollTo({ top: t.getBoundingClientRect().top + scrollY - 66, behavior: calm.matches ? 'auto' : 'smooth' });
+  history.pushState(null, '', a.getAttribute('href')); });
+function progress(){ const s = store.get(), done = BAB.filter(b => (s[b.id] || 0) >= 4).length;
+  $('#progbar').style.width = (done / BAB.length * 100) + '%'; $('#progtxt').textContent = `${done}/${BAB.length}`;
+  document.querySelectorAll('[data-id]').forEach(a => { const v = s[a.dataset.id]; a.classList.toggle('done', (v || 0) >= 4);
+    const em = a.querySelector('em'); if (em && v != null) em.textContent = `Kuis: ${v}/5`; }); }
+progress();
+</script>
+</body>
+</html>

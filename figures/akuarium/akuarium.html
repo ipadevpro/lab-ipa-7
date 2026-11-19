@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Akuarium</title>
+<style>@media (max-width:560px){.stats{flex-wrap:wrap;row-gap:6px}}</style>
+</head><body>
+<script src="core.js"></script>
+<script>
+/* Akuarium (Bab 6 Ekologi dan Keanekaragaman Hayati) — x = kedalaman (depan di x besar), y = lebar, z = atas; 1 unit = 1 cm.
+
+   CARA KERJA NYATA (langkah):
+   1. Lampu di tutup menyala -> cahaya (abiotik) masuk ke air -> Hydrilla (produsen) berfotosintesis, melepas O2 ke air.
+   2. Pompa udara: arus AC 50 Hz di kumparan membalik kutub elektromagnet -> magnet di ujung lengan getar ditarik-tolak
+      -> lengan menekan/menarik diafragma karet -> katup masuk/keluar bergantian -> udara didorong ke saluran keluar
+      -> selang (lewat celah belakang tutup, turun di sudut belakang) -> batu aerasi -> gelembung naik, O2 larut ke air.
+   3. Pelet dijatuhkan lewat tingkap pakan di tutup -> tenggelam -> ikan (konsumen) memakannya; sisa jatuh ke pasir.
+   4. Sisa makanan diuraikan bakteri dan dimakan siput (pengurai); penguraian memakai O2.
+   5. Ikan bernapas (respirasi) memakai O2 terlarut. O2 < 4 mg/L: ikan megap-megap di permukaan; < 2 mg/L: lemas di dasar.
+
+   MODEL SEDERHANA (per jam model; angka di "Oksigen" dihitung dari sini):
+     dO/dt = +0,08 x jumlah tanaman (bila lampu menyala)  + 0,15 (bila aerator nyala dan O < 8, jenuh 8 mg/L)
+             - 0,03 x jumlah ikan - 0,02 x sisa makanan;     O dibatasi 0..8 mg/L, mulai 7.
+     Lampu diatur pengatur waktu 12 jam (06.00-18.00). Sisa makanan berkurang 3% per jam (diuraikan bakteri dan siput).
+     Nafsu makan: tiap ikan makan maks. 2 pelet, pulih 1 pelet per 12 jam. Satu kali "Beri makan" = 4 pelet.
+     "Jalankan 1 hari" = 24 jam model dalam 8 detik. Getaran pompa diperlambat agar terlihat (aslinya 50 kali per detik).
+
+   DAFTAR BAGIAN
+   meja      : papan atas kayu, 4 kaki
+   akuarium  : 4 dinding kaca, bingkai bawah dan atas (plastik hitam), tutup dengan tingkap pakan berengsel dan lampu LED
+               di bawahnya, lampu indikator, kabel lampu (keluar dari celah belakang, turun ke meja, lewat tepi belakang)
+   isi       : pasir (abiotik), 3 batu, 4 rumpun Hydrilla (3 batang tiap rumpun), batu aerasi, selang dalam + mangkuk isap,
+               ikan (3..12), 2 siput (1 di pasir, 1 di kaca samping), gelembung, pelet, sisa makanan, termometer tempel
+   pompa     : rumah (warna), 4 kaki karet, sakelar, lampu nyala, kisi, nosel keluar, kabel daya
+     dalam   : pelat dasar, inti besi bentuk C (tulang + kutub atas/bawah), kumparan tembaga, 2 kabel ke kumparan,
+               magnet (N/S) di ujung lengan getar, lengan getar, tiang poros karet, ruang diafragma, diafragma karet,
+               batang penghubung, katup masuk, katup keluar, saluran keluar ke nosel
+   selang    : dari nosel di sisi pompa, di atas meja, naik di belakang akuarium, melewati bibir kaca di celah tutup,
+               turun di sudut belakang ke batu aerasi */
+
+/* ---------- ukuran ---------- */
+const TBX = 44, TBY = 96, ZT = 22, LEG = 3;                       // meja (atas di z = ZT)
+const TX0 = 7, TX1 = 37, TY0 = 30, TY1 = 90, TZ0 = ZT, TZ1 = ZT + 35, GL = .5;   // akuarium 60 x 30 x 35
+const SZ = TZ0 + 4.5, WL = TZ0 + 29;                              // permukaan pasir, permukaan air
+const LX0 = TX0 + 2.5, LZ = TZ1 + 2.6;                            // tutup (celah belakang 2,5 cm untuk selang dan kabel)
+const HATCH = [TX1 - 9, TX1 - 3, TY0 + 26, TY0 + 34];             // tingkap pakan (x0, x1, y0, y1)
+const PX0 = 16, PX1 = 28, PY0 = 6, PY1 = 22, PZ0 = ZT + .6, PZ1 = ZT + 8, PCX = 22, NZX = 25.5, NZZ = ZT + 3.2;   // pompa
+const OUTP = rrUV(PY0, PZ0, PY1, PZ1, 2.2);
+const STONE_P = [11.5, 36];
+const NPLANT = 4, OSAT = 8, MAXF = 12, DAYS = 8, PINCH = 4;
+const FB = { x0: TX0 + 3, x1: TX1 - 3, y0: TY0 + 4, y1: TY1 - 4, z0: SZ + 2.5, z1: WL - 1.5 };
+
+/* ---------- model sederhana ---------- */
+const oxyRate = (O, light, aer, nFish, sisa) => (light ? .08*NPLANT : 0) + (aer && O < OSAT ? .15 : 0) - .03*nFish - .02*sisa;
+const clampO = o => Math.max(0, Math.min(OSAT, o));
+const condOf = O => O < 2 ? 2 : O < 4 ? 1 : 0;
+const isDayH = h => (h % 24) < 12;                                // jam sejak 06.00: siang 06.00-18.00
+const fmt1 = v => v.toFixed(1).replace('.', ',');
+(() => { const ok = Math.abs(oxyRate(7, true, true, 3, 0) - .38) < 1e-9 && oxyRate(8, false, true, 0, 0) === 0
+    && Math.abs(oxyRate(5, false, false, 12, 10) + .56) < 1e-9 && clampO(9) === 8 && condOf(3.9) === 1 && condOf(1.9) === 2 && isDayH(11.9) && !isDayH(12);
+  if (!ok) document.documentElement.dataset.errors = (document.documentElement.dataset.errors || '') + ' model self-check failed;'; })();
+
+/* ---------- bahan ---------- */
+let aqSeed = 11; const rnd = () => (aqSeed = aqSeed*16807 % 2147483647) / 2147483647;
+const SAND = { l:'#efdca8', m:'#d8c088', d:'#ad9562' }, ROCK = { l:'#bdbcb3', m:'#97968d', d:'#6b6a63' };
+const STONE = { l:'#a9bfd6', m:'#86a0bb', d:'#5b7690' }, TRIM = { l:'#4a4744', m:'#34312e', d:'#211f1d' };
+const IRON = matOf('#8d969a'), TCOP = { l:'#f0b07a', m:'#d08a52', d:'#9a5a2c' }, RUBBER = { l:'#5a5550', m:'#3d3935', d:'#262321' };
+const SHELL = { l:'#efc06a', m:'#cc9342', d:'#8a5a22' }, SBODY = { l:'#eadfc4', m:'#cbbb96', d:'#8f8160' };
+const WATER = '#6fbcdc', GLASS = '#cfe9f0', HOSE = '#d7ebe1', CORD = '#3b3835', PELLET = '#8a4b22';
+const FISHC = ['#f2802e', '#e2483d', '#f4c430', '#f7a35c', '#ef6a4c', '#ffd166'];
+const mw = w => `style="stroke-width:${w.toFixed(3)}"`;   // garis dalam satuan model (tidak diskalakan inkScale)
+const addv = (a, ...vs) => vs.reduce((o, [v, k]) => o.map((x, i) => x + v[i]*k), a);
+const bboxOf = (pts, r) => [[0,1,2].map(i => Math.min(...pts.map(p => p[i])) - r), [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + r)];
+// tabung / kabel: potongan pendek agar bisa diurutkan dengan benda padat
+function aqTube(pts, col, r){ const d = pd(pts, false), w = 2*r*CAM_K;
+  return { box: bboxOf(pts, r), svg: `<path d="${d}" fill="none" stroke="${INK}" ${mw(w + 1.6*INK_K)} stroke-linejoin="round" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${col}" ${mw(w)} stroke-linejoin="round" stroke-linecap="round"/>` }; }
+const tubeSegs = (pts, col, r) => pts.slice(1).map((p, i) => aqTube([pts[i], p], col, r));
+const aqClip = (pts3, inner) => { const id = 'k' + (++_clipN); return `<clipPath id="${id}"><path d="${sp(hull(pts3.map(p => P(...p))))}"/></clipPath><g clip-path="url(#${id})">${inner}</g>`; };
+const boxPts = (x0, y0, z0, x1, y1, z1) => { const o = []; for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) o.push([x, y, z]); return o; };
+
+/* ---------- benda tetap (posisi diacak sekali, tetap sama tiap muat) ---------- */
+const BUNCH = [[12, 45], [11, 63], [13, 81], [29, 85]];
+const PLANTS = [];
+BUNCH.forEach(([bx, by]) => { for (let j = 0; j < 3; j++){ const a = j*2.1 + rnd(); PLANTS.push({ bx: bx + Math.cos(a)*1.2, by: by + Math.sin(a)*1.2, h: 18 + rnd()*5, lean: [(rnd() - .5)*3.5, (rnd() - .5)*3.5], ph: rnd()*6.28 }); } });
+const ROCKS = [[25, 52, 4.2, 3.4], [18, 71, 3.2, 2.6], [31, 40, 2.6, 2.1]].map(([x, y, R, h]) => ({ x, y, R, h, nz: Array.from({length:9}, () => .86 + rnd()*.2) }));
+const GRAINS = Array.from({length:110}, () => [TX0 + 1 + rnd()*(TX1 - TX0 - 2), TY0 + 1 + rnd()*(TY1 - TY0 - 2), rnd()]);
+const SIDEGR = Array.from({length:70}, () => [rnd(), TZ0 + 1.6 + rnd()*(SZ - TZ0 - 1.9), rnd()]);
+
+/* ---------- ikan ---------- */
+function makeFish(i, p){
+  const col = FISHC[i % FISHC.length];
+  return { p: p || newTarget(null, 'renang'), v: [0, 0, 0],
+    h: norm([rnd() - .5, rnd() - .5, 0]), tgt: null, mode: 'renang', app: 2, sc: 1.15 + rnd()*.3, spd: .8 + rnd()*.4,
+    ph: rnd()*6, roll: 0, mat: matOf(col), fin: mix(col, '#ffffff', .35) };
+}
+const FST = [[-2, .22, .13], [-1.3, .55, .3], [-.4, .82, .42], [.6, .78, .4], [1.4, .5, .27], [2, .08, .05]];
+function fishSvg(fi){
+  const sc = fi.sc, h = fi.h; let s0 = norm(cross(h, [0, 0, 1])); if (!isFinite(s0[0]) || Math.hypot(...s0) < .5) s0 = [0, 1, 0];
+  const u0 = cross(s0, h), cr = Math.cos(fi.roll), sr = Math.sin(fi.roll);
+  const u = u0.map((v, i) => v*cr + s0[i]*sr), sd = s0.map((v, i) => v*cr - u0[i]*sr);
+  const wag = Math.sin(fi.ph)*.32;
+  const pt = (t, a, b) => { const bend = t < 0 ? wag*(t/2)*(t/2)*1.6 : 0; return [0,1,2].map(i => fi.p[i] + (h[i]*t + sd[i]*(a + bend) + u[i]*b)*sc); };
+  const rings = FST.map(([t, ry, rx]) => Array.from({length:10}, (_, k) => { const an = k/10*2*Math.PI; return pt(t, rx*Math.cos(an), ry*Math.sin(an)); }));
+  const M = fi.mat;
+  let body = ''; for (let i = 0; i < rings.length - 1; i++) body += loft(rings[i], rings[i + 1], n => toneI(n, M));
+  if (!facing(h)) body += fill(pd(rings[0]), M.m);
+  const tail = [pt(-1.9, 0, .18), pt(-3.3, 0, .95), pt(-2.85, 0, 0), pt(-3.3, 0, -.95), pt(-1.9, 0, -.18)];
+  const dors = [pt(-.8, 0, .75), pt(.4, 0, .72), pt(-1.1, 0, 1.3)];
+  const finS = q => fill(pd(q), fi.fin, 'opacity=".92"') + ink(pd(q), .5);
+  const side = vis(sd) ? 1 : -1, ep = pt(1.25, .3*side, .2), [ex, ey] = P(...ep);
+  const eye = `<circle cx="${f(ex)}" cy="${f(ey)}" r="${f(.19*sc*CAM_K)}" fill="${INK}"/><circle cx="${f(ex - .05)}" cy="${f(ey - .06)}" r="${f(.06*sc*CAM_K)}" fill="#fff"/>`;
+  const out = hullInk([...rings.flat(), ...tail], 1.1);
+  const topSeen = vis(u);
+  return facing(h) ? finS(tail) + (topSeen ? '' : finS(dors)) + body + out + eye + (topSeen ? finS(dors) : '')
+                   : (topSeen ? '' : finS(dors)) + body + out + eye + finS(tail) + (topSeen ? finS(dors) : '');
+}
+const fishBox = fi => [[fi.p[0] - 2.8*fi.sc, fi.p[1] - 2.8*fi.sc, fi.p[2] - 1.3], [fi.p[0] + 2.8*fi.sc, fi.p[1] + 2.8*fi.sc, fi.p[2] + 1.3]];
+
+/* ---------- siput, batu, tanaman ---------- */
+function snailSvg(p, nrm, hd){
+  const sd = norm(cross(nrm, hd));
+  let s = rod(addv(p, [hd, -1.1], [nrm, .38]), addv(p, [hd, 1.4], [nrm, .42]), .4, SBODY, toneI, .8, .32, 12);
+  const hb = addv(p, [hd, 1.45], [nrm, .62]);
+  for (const g of [-1, 1]) s += line([hb, addv(hb, [hd, .55], [nrm, .55], [sd, .28*g])], .7);
+  const c = addv(p, [nrm, 1.4], [hd, -.3]), cs = vis(sd) ? 1 : -1;
+  s += rod(addv(c, [sd, -.55]), addv(c, [sd, .55]), 1.05, SHELL, toneI, .9, 1.05, 18);
+  const ce = addv(c, [sd, .57*cs]), sp2 = [];
+  for (let i = 0; i <= 44; i++){ const th = i/44*4*Math.PI, r = .92*(1 - i/44*.85); sp2.push(addv(ce, [hd, Math.cos(th)*r], [nrm, Math.sin(th)*r])); }
+  return s + line(sp2, .6);
+}
+function rockSvg(r){
+  const lv = [[0, 1], [.45, .97], [.8, .72], [1, .3]];
+  const rings = lv.map(([zf, rf]) => Array.from({length:9}, (_, i) => { const a = i/9*2*Math.PI + .3, rr = r.R*rf*r.nz[i]; return [r.x + rr*Math.cos(a), r.y + rr*Math.sin(a)*.85, SZ - .4 + r.h*zf]; }));
+  let s = ''; for (let i = 0; i < 3; i++) s += loft(rings[i], rings[i + 1], n => toneI(n, ROCK));
+  return s + fill(pd(rings[3]), toneI([0, 0, 1], ROCK)) + ink(pd(rings[3]), .6) + hullInk(rings.flat(), 1.3);
+}
+function stemPts(p, t){ const N = 18;
+  return Array.from({length:N + 1}, (_, i) => { const q = i/N, z = SZ - .3 + p.h*q, sw = Math.sin(t*.9 + p.ph + z*.15)*.9*q*q;
+    return [p.bx + p.lean[0]*q**1.5 + sw, p.by + p.lean[1]*q**1.5 + sw*.6, z]; }); }
+function plantItems(p, t, lit){
+  const pts = stemPts(p, t), items = [], leafCol = mix('#4f9a3f', '#7cd25a', lit);
+  for (let sec = 0; sec < 3; sec++){
+    const i0 = sec*6, i1 = i0 + 6, seg = pts.slice(i0, i1 + 1);
+    let lv = '';
+    for (let i = i0 + 1; i <= i1; i++){ const b = pts[i], len = i > 15 ? 1.1 : 1.8;
+      for (let j = 0; j < 3; j++){ const th = i*1.1 + j*2.094, dir = norm([Math.cos(th)*.85, Math.sin(th)*.85, .62]), pp = norm(cross(dir, [0, 0, 1]));
+        lv += pd([b, addv(b, [dir, len*.45], [pp, .22]), addv(b, [dir, len]), addv(b, [dir, len*.45], [pp, -.22])]); } }
+    const st = pd(seg, false);
+    items.push({ box: bboxOf(seg, 1.5), svg: `<path d="${st}" fill="none" stroke="${INK}" ${mw(.55)} stroke-linecap="round"/><path d="${st}" fill="none" stroke="#4f8f3a" ${mw(.3)} stroke-linecap="round"/>`
+      + `<path d="${lv}" fill="${leafCol}" stroke="${INK}" stroke-width=".45" stroke-linejoin="round"/>` });
+  }
+  return items;
+}
+const bubSvg = (p, r, op = .55) => { const [X, Y] = P(...p), rr = r*CAM_K;
+  return `<circle cx="${f(X)}" cy="${f(Y)}" r="${f(rr)}" fill="#ffffff" fill-opacity="${op}" stroke="${INK}" stroke-width=".5"/><circle cx="${f(X - rr*.35)}" cy="${f(Y - rr*.35)}" r="${f(rr*.28)}" fill="#ffffff"/>`; };
+const dotSvg = (p, r, col) => { const [X, Y] = P(...p); return `<circle cx="${f(X)}" cy="${f(Y)}" r="${f(r*CAM_K)}" fill="${col}" stroke="${INK}" stroke-width=".45"/>`; };
+
+/* ---------- akuarium ---------- */
+const WALLS = [
+  { n:[1,0,0],  q:(z0, z1) => [[TX1,TY0,z0],[TX1,TY1,z0],[TX1,TY1,z1],[TX1,TY0,z1]], at:(u, z) => [TX1 + .02, u, z], u0:TY0, u1:TY1 },
+  { n:[-1,0,0], q:(z0, z1) => [[TX0,TY0,z0],[TX0,TY1,z0],[TX0,TY1,z1],[TX0,TY0,z1]], at:(u, z) => [TX0 - .02, u, z], u0:TY0, u1:TY1 },
+  { n:[0,1,0],  q:(z0, z1) => [[TX0,TY1,z0],[TX1,TY1,z0],[TX1,TY1,z1],[TX0,TY1,z1]], at:(u, z) => [u, TY1 + .02, z], u0:TX0, u1:TX1 },
+  { n:[0,-1,0], q:(z0, z1) => [[TX0,TY0,z0],[TX1,TY0,z0],[TX1,TY0,z1],[TX0,TY0,z1]], at:(u, z) => [u, TY0 - .02, z], u0:TX0, u1:TX1 } ];
+const TRIMB = n => n[0] === 1 ? [TX1 - .5, TY0 - .3, TX1 + .3, TY1 + .3] : n[0] === -1 ? [TX0 - .3, TY0 - .3, TX0 + .5, TY1 + .3]
+  : n[1] === 1 ? [TX0 + .5, TY1 - .5, TX1 - .5, TY1 + .3] : [TX0 + .5, TY0 - .3, TX1 - .5, TY0 + .5];
+function trims(ws){ return byDepth(ws.flatMap(w => { const [x0, y0, x1, y1] = TRIMB(w.n);
+  return [[TZ0, TZ0 + 1.5], [TZ1 - 1.2, TZ1]].map(([z0, z1]) => ({ box: [[x0, y0, z0], [x1, y1, z1]], svg: box(x0, y0, z0, x1, y1, z1, TRIM, tone, .9) })); })); }
+const TANK_PTS = [...boxPts(TX0 - .3, TY0 - .3, TZ0, TX1 + .3, TY1 + .3, TZ1), ...boxPts(LX0, TY0 - .3, TZ1, TX1 + .3, TY1 + .3, LZ)];
+function thermo(front){
+  const x = TX1 + .06, y0 = TY0 + 3.2, y1 = TY0 + 6.4, z0 = TZ0 + 9, z1 = TZ0 + 25, ym = (y0 + y1)/2;
+  if (!front) return fill(pd([[TX1 + .03, y0, z0], [TX1 + .03, y1, z0], [TX1 + .03, y1, z1], [TX1 + .03, y0, z1]]), '#3a3632', 'opacity=".8"');
+  let s = shape([[x, y0, z0], [x, y1, z0], [x, y1, z1], [x, y0, z1]], '#25302c', .8);
+  [20, 22, 24, 26, 28, 30].forEach((T, i) => { const zc = z0 + 1.6 + i*2.4, on2 = T === 26;
+    if (on2) s += fill(pd([[x + .01, y0 + .3, zc - 1.1], [x + .01, y1 - .3, zc - 1.1], [x + .01, y1 - .3, zc + 1.1], [x + .01, y0 + .3, zc + 1.1]]), '#8af0ae');
+    s += tx(x + .02, ym, zc - .45, String(T), 1.25, on2 ? INK : '#9fb8ae', 800); });
+  return s + tx(x + .02, ym, z1 - 1.3, '°C', 1.2, '#cfe0d8', 800);
+}
+const HOSE_IN = [[8.2, 33, TZ1 - .5], [8.2, 33, WL], [8.2, 33, SZ + 3.6], [9.6, 34.5, SZ + 2.4], [STONE_P[0], STONE_P[1], SZ + 1.4]];
+const HOSE_RIM = [[4.5, 33, TZ1 + .4], [5.2, 33, TZ1 + 1.6], [6.3, 33, TZ1 + 2.1], [7.4, 33, TZ1 + 1.8], [8.2, 33, TZ1 + .7], [8.2, 33, TZ1 - .5]];
+const CORD_RIM = [[LX0, 86, TZ1 + 1.3], [8, 86, TZ1 + 1.9], [6.6, 86, TZ1 + 1.7], [5.6, 86, TZ1 + .6]];
+
+function contents(st){
+  const t = st.t, lit = st.light, under = [], over = [];
+  const put = it => (it.box[0][2] >= WL - 1e-6 ? over : under).push(it);
+  // pasir: lantai, digambar paling dulu (semua benda berdiri di atasnya)
+  let s = box(TX0 + GL, TY0 + GL, TZ0 + GL, TX1 - GL, TY1 - GL, SZ, SAND, toneI, .8);
+  let gd = '', gd2 = '';
+  for (const [x, y, c] of GRAINS) (c < .5 ? (gd += pd(on(PZ(SZ + .02), ellUV(x, y, .22, .18, 6)))) : (gd2 += pd(on(PZ(SZ + .02), ellUV(x, y, .16, .14, 6)))));
+  for (const w of WALLS) if (vis(w.n)){ const inset = w.n[0] ? [TX0 + GL, TX1 - GL] : [TY0 + GL, TY1 - GL];
+    for (const [u, z, c] of SIDEGR){ const uu = (w.n[0] ? TY0 + 1 : TX0 + 1) + u*((w.n[0] ? TY1 - TY0 : TX1 - TX0) - 2);
+      const p = w.n[0] ? [w.n[0] > 0 ? inset[1] + .02 : inset[0] - .02, uu, z] : [uu, w.n[1] > 0 ? inset[1] + .02 : inset[0] - .02, z];
+      const q = w.n[0] ? [[p[0], uu - .2, z - .15], [p[0], uu + .2, z - .15], [p[0], uu + .2, z + .15], [p[0], uu - .2, z + .15]] : [[uu - .2, p[1], z - .15], [uu + .2, p[1], z - .15], [uu + .2, p[1], z + .15], [uu - .2, p[1], z + .15]];
+      if (c < .5) gd += pd(q); else gd2 += pd(q); } }
+  s += fill(gd, '#b99c62') + fill(gd2, '#f7ecca');
+  // sisa makanan: lapisan kecokelatan di pasir bila menumpuk, lalu butir-butirnya
+  if (st.sisa > .5) s += fill(pd(on(PZ(SZ + .03), rectUV(TX0 + GL, TY0 + GL, TX1 - GL, TY1 - GL))), '#6e5a2a', `opacity="${f(Math.min(.28, st.sisa*.02))}"`);
+  for (const l of st.left) s += fill(pd(on(PZ(SZ + .05), ellUV(l[0], l[1], .4, .34, 7))), '#5e3318') + ink(pd(on(PZ(SZ + .05), ellUV(l[0], l[1], .4, .34, 7))), .4);
+  // pola cahaya di pasir (cahaya dari lampu yang dibiaskan permukaan air)
+  if (lit > .02){ let cs = ''; for (let i = 0; i < 14; i++){ const x = TX0 + 4 + (i*7.3 % 22) + Math.sin(t*.7 + i)*.8, y = TY0 + 5 + (i*13.7 % 50) + Math.cos(t*.6 + i*1.7)*.9;
+      cs += pd(on(PZ(SZ + .06), ellUV(x, y, 1.4 + (i % 3)*.4, .8 + (i % 2)*.3, 9))); }
+    s += fill(cs, '#fffbd8', `opacity="${f(.45*lit)}"`); }
+  for (const r of ROCKS) put({ box: [[r.x - r.R, r.y - r.R, SZ - .4], [r.x + r.R, r.y + r.R, SZ - .4 + r.h]], svg: rockSvg(r) });
+  // batu aerasi + mangkuk isap yang memegang selang di kaca belakang
+  { const [x, y] = STONE_P; let dd = ''; for (let i = 0; i < 7; i++) dd += pd(on(PZ(SZ + 1.42), ellUV(x + Math.cos(i*2.4)*.7, y + Math.sin(i*2.4)*.7, .12, .12, 5)));
+    put({ box: [[x - 1.3, y - 1.3, SZ - .3], [x + 1.3, y + 1.3, SZ + 1.4]], svg: cyl(x, y, SZ - .3, SZ + 1.4, 1.3, STONE, toneI, 1, 16) + fill(dd, STONE.d) }); }
+  put({ box: [[TX0 + .5, 32.2, 39.2], [TX0 + 1.1, 33.8, 40.8]], svg: rod([TX0 + .5, 33, 40], [TX0 + 1.1, 33, 40], .8, matOf('#dfeef0'), toneI, .7) });
+  tubeSegs(HOSE_IN, HOSE, .3).forEach(put);
+  for (const p of PLANTS) plantItems(p, t, lit).forEach(put);
+  for (const fi of st.fish) put({ box: fishBox(fi), svg: fishSvg(fi) });
+  // siput: satu di pasir, satu merayap di kaca samping
+  { const s1 = st.snails[0], s2 = st.snails[1];
+    put({ box: [[s1.p[0] - 1.6, s1.p[1] - 1.8, SZ], [s1.p[0] + 1.6, s1.p[1] + 1.8, SZ + 2.6]], svg: snailSvg(s1.p, [0, 0, 1], [0, s1.dir, 0]) });
+    put({ box: [[s2.p[0] - 1.2, TY1 - 3, s2.p[2] - 1.8], [s2.p[0] + 1.2, TY1 - GL, s2.p[2] + 1.8]], svg: snailSvg(s2.p, [0, -1, 0], [0, 0, s2.dir]) }); }
+  for (const b of st.bubbles) put({ box: [[b.x - b.r, b.y - b.r, b.z - b.r], [b.x + b.r, b.y + b.r, Math.min(WL - .01, b.z + b.r)]], svg: bubSvg([b.x, b.y, b.z], b.r, b.o2 ? .7 : .55) });
+  for (const q of st.pellets) if (q.delay <= 0) put({ box: [[q.x - .35, q.y - .35, q.z - .35], [q.x + .35, q.y + .35, q.z + .35]], svg: dotSvg([q.x, q.y, q.z], .34, PELLET) });
+  // permukaan air: di atas semua yang di dalam air, di bawah yang di atas air
+  const surf = on(PZ(WL), rectUV(TX0 + GL, TY0 + GL, TX1 - GL, TY1 - GL));
+  let sf = fill(pd(surf), mix('#d4f0f8', '#fff7cf', .5*lit), 'opacity=".42"');
+  if (st.aerK > .05) for (let i = 0; i < 3; i++){ const k = ((t*.8 + i/3) % 1); sf += `<path d="${pd(on(PZ(WL + .02), ellUV(STONE_P[0], STONE_P[1], .8 + 3*k, .7 + 2.6*k, 16)))}" fill="none" stroke="#ffffff" stroke-width="1" opacity="${f((1 - k)*.8*st.aerK)}"/>`; }
+  return s + byDepth(under) + sf + byDepth(over);
+}
+function tankSvg(st, m){
+  const near = WALLS.filter(w => vis(w.n)), far = WALLS.filter(w => !vis(w.n)), lit = st.light, back = facing([-1, 0, 0]);
+  const wcol = mix(mix(WATER, '#9fb36a', Math.min(.45, st.sisa*.025)), '#e7f6c8', .3*lit);
+  let s = '';
+  // dinding jauh: air di belakang terlihat biru, kaca di atas air hanya samar
+  for (const w of far) s += fill(pd(w.q(TZ0 + 1.5, WL)), wcol, 'opacity=".8"') + fill(pd(w.q(WL, TZ1 - 1.2)), GLASS, 'opacity=".3"');
+  s += trims(far);
+  if (!facing([1, 0, 0])) s += thermo(false);
+  const inner = boxPts(TX0 + GL, TY0 + GL, TZ0 + GL, TX1 - GL, TY1 - GL, TZ1);
+  s += aqClip(inner, contents(st));
+  // dinding dekat: kaca bening berisi air, garis permukaan, kilau
+  for (const w of near){
+    s += fill(pd(w.q(TZ0 + 1.5, WL)), mix(wcol, '#fff6c8', .3*lit), 'opacity=".3"') + fill(pd(w.q(WL, TZ1 - 1.2)), GLASS, 'opacity=".16"');
+    s += `<path d="${pd([w.at(w.u0 + .5, WL), w.at(w.u1 - .5, WL)], false)}" fill="none" stroke="#5fb0cf" stroke-width="1.6" opacity=".8"/>`;
+    const L2 = w.u1 - w.u0;
+    for (const [a, b] of [[.18, .05], [.3, .025]]) s += fill(pd([w.at(w.u0 + L2*a, TZ0 + 4), w.at(w.u0 + L2*(a + b), TZ0 + 4), w.at(w.u0 + L2*(a + b + .12), TZ1 - 4), w.at(w.u0 + L2*(a + .12), TZ1 - 4)]), '#ffffff', 'opacity=".3"');
+  }
+  s += trims(near);
+  // tepi kaca tegak (lem silikon)
+  for (const [x, y, n1, n2] of [[TX0, TY0, [-1,0,0], [0,-1,0]], [TX1, TY0, [1,0,0], [0,-1,0]], [TX1, TY1, [1,0,0], [0,1,0]], [TX0, TY1, [-1,0,0], [0,1,0]]])
+    if (vis(n1) || vis(n2)) s += line([[x, y, TZ0 + 1.5], [x, y, TZ1 - 1.2]], 1.1);
+  if (facing([1, 0, 0])) s += thermo(true);
+  // tutup, tingkap pakan, lampu indikator; selang dan kabel lewat bibir kaca di celah belakang
+  const rim = aqTube(HOSE_RIM, HOSE, .3).svg + aqTube(CORD_RIM, CORD, .25).svg;
+  let lid = box(LX0, TY0 - .3, TZ1, TX1 + .3, TY1 + .3, LZ, m, tone, 1.1);
+  const [hx0, hx1, hy0, hy1] = HATCH, a = st.flap*1.25;
+  if (st.flap > .02) lid += shape(on(PZ(LZ + .03), rectUV(hx0, hy0, hx1, hy1)), '#2b2523', .9);
+  const fp = (u, y, dz = 0) => [hx0 + u*Math.cos(a) - dz*Math.sin(a), y, LZ + .05 + u*Math.sin(a) + dz*Math.cos(a)];
+  const fn = [-Math.sin(a), 0, Math.cos(a)], fv = vis(fn);
+  const ftop = [fp(0, hy0, .3), fp(6, hy0, .3), fp(6, hy1, .3), fp(0, hy1, .3)], fbot = [fp(0, hy0), fp(6, hy0), fp(6, hy1), fp(0, hy1)];
+  let flap = shape(fv ? ftop : fbot, fv ? mix(m.l, '#ffffff', .25) : m.d, 1);
+  const edge = [fp(6, hy0), fp(6, hy1), fp(6, hy1, .3), fp(6, hy0, .3)];
+  if (vis([Math.cos(a), 0, Math.sin(a)])) flap += shape(edge, m.m, .7);
+  flap += rod(fp(5.4, (hy0 + hy1)/2, .3), fp(5.4, (hy0 + hy1)/2, .9), .45, DARK, toneI, .7);
+  lid += act('feed', flap);
+  const led = on(PZ(LZ + .03), ellUV(TX1 - 2.2, TY1 - 4, .7, .7, 12));
+  lid += act('lamp', fill(pd(led), st.lamp ? '#ffd84a' : '#8d877a') + ink(pd(led), .7));
+  s += back ? lid + rim : rim + lid;
+  return s + hullInk(TANK_PTS, 2.6);
+}
+
+/* ---------- pompa udara ---------- */
+const PUMP_PTS = [...on(PX(PX0), OUTP), ...on(PX(PX1), OUTP)];
+const zb = PZ0 + .6;
+function pumpMech(st){
+  const parts = [], put = (b, svg) => parts.push({ box: b, svg });
+  const bx = (x0, y0, z0, x1, y1, z1, m, w = .7) => put([[x0, y0, z0], [x1, y1, z1]], box(x0, y0, z0, x1, y1, z1, m, toneI, w));
+  const amp = .5*Math.sin(st.vib)*st.aerK, zm = zb + 2.7 + amp, d10 = amp*.443, vel = Math.cos(st.vib)*st.aerK;
+  bx(PX0 + 1, PY0 + 1, PZ0, PX1 - 1, PY1 - 1, zb, matOf('#6f7478'), .7);                                     // pelat dasar
+  // inti besi C: tulang tegak di dalam kumparan, kutub atas dan bawah mengapit magnet
+  put([[PCX - 1.5, PY0 + .6, zb], [PCX + 1.5, PY0 + 3.6, zb + 4.2 - .01]], box(PCX - 1.2, PY0 + 1.5, zb, PCX + 1.2, PY0 + 2.7, zb + 4.2, IRON, toneI, .7)
+    + cyl(PCX, PY0 + 2.1, zb + 1.4, zb + 4.0, 1.5, TCOP, toneI, .9, 18));
+  bx(PCX - 1.2, PY0 + 1.5, zb + 4.2, PCX + 1.2, PY0 + 6, zb + 5.4, IRON);
+  bx(PCX - 1.2, PY0 + 2.7, zb, PCX + 1.2, PY0 + 6, zb + 1.2, IRON);
+  // magnet (N merah, S biru) di ujung lengan getar
+  put([[PCX - 1, PY0 + 4, zm - .7], [PCX + 1, PY0 + 5.6, zm + .7]], box(PCX - 1, PY0 + 4, zm - .7, PCX + 1, PY0 + 5.6, zm, matOf('#5a82c6'), toneI, .6) + box(PCX - 1, PY0 + 4, zm, PCX + 1, PY0 + 5.6, zm + .7, matOf('#e2483d'), toneI, .6));
+  put([[PCX - .4, PY0 + 5.6, Math.min(zm, zb + 2.7) - .4], [PCX + .4, PY1 - 2.1, Math.max(zm, zb + 2.7) + .4]], rod([PCX, PY0 + 5.6, zm], [PCX, PY1 - 2.5, zb + 2.7], .35, METAL, toneI, .7));
+  bx(PCX - .8, PY1 - 3.3, zb, PCX + .8, PY1 - 1.7, zb + 2.3, RUBBER);                                         // tiang poros
+  // ruang diafragma, diafragma karet (kubah), batang penghubung ke lengan
+  bx(PCX - 2.2, PY0 + 8, zb, PCX + 2.2, PY0 + 12, zb + 1, matOf('#9aa1a5'));
+  { const c = [PCX, PY0 + 10], r0 = on(PZ(zb + 1), ellUV(c[0], c[1], 1.7, 1.7, 16)), r1 = on(PZ(zb + 1.5 + d10*.6), ellUV(c[0], c[1], 1.3, 1.3, 16)), r2 = on(PZ(zb + 1.85 + d10), ellUV(c[0], c[1], .55, .55, 16));
+    put([[c[0] - 1.7, c[1] - 1.7, zb + 1], [c[0] + 1.7, c[1] + 1.7, zb + 1.9 + d10]], loft(r0, r1, n => toneI(n, RUBBER)) + loft(r1, r2, n => toneI(n, RUBBER)) + fill(pd(r2), RUBBER.l) + hullInk([...r0, ...r2], .8)
+      + rod([c[0], c[1], zb + 1.85 + d10], [c[0], c[1], zb + 2.7 + d10], .2, METAL, toneI, .5)); }
+  // katup masuk dan keluar di muka ruang; menyala bergantian saat diafragma naik/turun
+  for (const [y, open] of [[PY0 + 9, vel > .2], [PY0 + 11, vel < -.2]]){
+    put([[PCX + 2.2, y - .4, zb + .1], [PCX + 2.9, y + .4, zb + .9]], cylX(PCX + 2.2, PCX + 2.9, y, zb + .5, .38, matOf('#e8e4da'), toneI, .6, 12)
+      + (facing([1, 0, 0]) ? fill(pd(on(PX(PCX + 2.92), ellUV(y, zb + .5, .2, .2, 8))), open ? '#43c25c' : '#7d7169') : '')); }
+  // saluran keluar: dari katup keluar ke nosel di dinding sisi
+  tubeSegs([[PCX + 2.9, PY0 + 11, zb + .5], [NZX, PY0 + 11, zb + .5], [NZX, PY0 + 11, NZZ], [NZX, PY1 - .1, NZZ]], '#e8e4da', .25).forEach(t => parts.push(t));
+  // kabel daya dari lubang kabel di belakang ke kumparan
+  parts.push(aqTube([[PX0 + .3, PY0 + 3, NZZ], [PX0 + 2, PY0 + 2.4, zb + 2.6], [PCX - 1.5, PY0 + 2.1, zb + 2.6]], '#c0392b', .15));
+  parts.push(aqTube([[PX0 + .3, PY0 + 3.3, NZZ - .3], [PX0 + 2, PY0 + 2.9, zb + 3.2], [PCX - 1.5, PY0 + 2.5, zb + 3.2]], '#2b2523', .15));
+  return byDepth(parts);
+}
+function pumpSvg(st, m, k){
+  const FR = facing([1, 0, 0]), BK = facing([-1, 0, 0]), SY = facing([0, 1, 0]);
+  const feet = byDepth([[PX0 + 1.6, PY0 + 1.8], [PX0 + 1.6, PY1 - 1.8], [PX1 - 1.6, PY0 + 1.8], [PX1 - 1.6, PY1 - 1.8]].map(([x, y]) => ({ box: [[x - .8, y - .8, ZT], [x + .8, y + .8, PZ0 + .3]], svg: cyl(x, y, ZT, PZ0 + .3, .8, RUBBER, toneI, .8, 12) })));
+  let body = '';
+  if (FR) body += fill(pd(on(PX(PX1), OUTP)), tone([1, 0, 0], m));
+  if (BK) body += fill(pd(on(PX(PX0), OUTP)), tone([-1, 0, 0], m));
+  body += extrude(OUTP, PX0, PX1, m);
+  if (FR){ let v = ''; for (let i = 0; i < 5; i++) v += pd([[PX1 + .05, PY0 + 3, PZ0 + 1.6 + i*.9], [PX1 + .05, PY0 + 8, PZ0 + 1.6 + i*.9]], false);
+    body += `<path d="${v}" fill="none" stroke="${INK}" stroke-width="1.1" opacity=".7"/>`;
+    const lp = on(PX(PX1 + .05), ellUV(PY1 - 3.2, PZ1 - 2.4, .55, .55, 12));
+    body += fill(pd(lp), st.aer ? '#43c25c' : '#8d877a') + ink(pd(lp), .6) + tx(PX1 + .06, PY1 - 6.5, PZ0 + 1.7, 'POMPA UDARA', 1.15, mix(m.d, '#000000', .2), 800)
+      + ink(pd(on(PX(PX1), OUTP)), 1.6); }
+  if (BK) body += ink(pd(on(PX(PX0), OUTP)), 1.6) + fill(pd(on(PX(PX0 - .05), ellUV(PY0 + 3, NZZ, .6, .6, 10))), RUBBER.m);
+  body += hullInk(PUMP_PTS, 2.2);
+  const nozzle = rod([NZX, PY1 - .2, NZZ], [NZX, PY1 + 1.3, NZZ], .42, METAL, toneI, .8, .38, 12);
+  if (k > 0) body = xrGhost(body, '', k, OUTP, PX0, PX1, m) + `<g opacity="${f(k)}">${pumpMech(st)}</g>`;
+  const on2 = st.aer;
+  const sw = box(PX0 + 3, PY0 + 3, PZ1, PX0 + 4.5, PY0 + 5, PZ1 + (on2 ? .3 : .7), on2 ? matOf('#e2483d') : DARK, toneI, .7)
+    + box(PX0 + 4.5, PY0 + 3, PZ1, PX0 + 6, PY0 + 5, PZ1 + (on2 ? .7 : .3), DARK, toneI, .7);
+  return feet + (SY ? body + nozzle : nozzle + body) + act('pump', sw);
+}
+
+/* ---------- meja, kabel, selang luar ---------- */
+function tableSvg(){
+  const legs = [[2, 2], [TBX - 5, 2], [2, TBY - 5], [TBX - 5, TBY - 5]].map(([x, y]) => ({ box: [[x, y, 0], [x + LEG, y + LEG, ZT - 3]], svg: box(x, y, 0, x + LEG, y + LEG, ZT - 3, WOOD, toneI, 1.1) }));
+  let s = byDepth(legs) + box(0, 0, ZT - 3, TBX, TBY, ZT, WOOD, toneI, 1.2);
+  let g = ''; for (const x of [6, 13, 21, 30, 38]) g += pd([[x, 1.5, ZT + .02], [x + 1.5, TBY*.45, ZT + .02], [x - .5, TBY - 1.5, ZT + .02]], false);
+  return s + `<path d="${g}" fill="none" stroke="${WOOD.d}" stroke-width=".8" opacity=".55"/>` + hullInk(boxPts(0, 0, ZT - 3, TBX, TBY, ZT), 2.2);
+}
+const HOSE_OUT = [[NZX, PY1 + 1, NZZ], [NZX, 24.6, NZZ - .6], [NZX, 25.7, ZT + 1.2], [NZX, 26, ZT + .6], [5.5, 26, ZT + .6], [4.5, 27, ZT + .6], [4.5, 33, ZT + .6], [4.5, 33, ZT + 1.6], [4.5, 33, TZ1 + .4]];
+const PCORD = [[PX0, PY0 + 3, NZZ], [PX0 - 1.5, PY0 + 3, NZZ - .8], [PX0 - 2.6, PY0 + 3, ZT + .5], [2, PY0 + 3, ZT + .5], [.3, PY0 + 3, ZT + .5]];
+const LCORD = [[5.6, 86, TZ1 + .6], [5.6, 86, ZT + 1.4], [5.2, 86, ZT + .5], [.3, 86, ZT + .5]];
+const hangOf = y => [[.3, y, ZT + .5], [-.6, y, ZT - .6], [-.8, y, ZT - 11]];
+
+/* ---------- label: salinan xrCallouts, kolom kanan dimulai di bawah panel angka ---------- */
+function aqCallouts(items, B){
+  const pts = []; for (const x of [B[0], B[1]]) for (const y of [B[2], B[3]]) for (const z of [B[4], B[5]]) pts.push(P(x, y, z));
+  const xmin = Math.min(...pts.map(p => p[0])), xmax = Math.max(...pts.map(p => p[0])), cx = (xmin + xmax)/2;
+  // on a phone (LBL_U = drawing units per screen px) each label is a numbered badge and the names go in a legend under the figure
+  const k = INK_K, u = window.LBL_U ? LBL_U() : 0, fs = u ? 10*u : 8.6*k, hgt = u ? 17*u : fs*1.8, gap = hgt + (u ? 3*u : 3*k);
+  const Lc = [], Rc = [];
+  const svgEl = document.getElementById('fig'), vb = svgEl.viewBox.baseVal, btn = document.getElementById('btns');
+  const wMax = u ? hgt*1.3 + 12*k : Math.max(...items.map(it => it.text.length))*fs*.62 + fs*1.5 + 12*k;
+  const roomL = xmin - vb.x >= wMax, roomR = vb.x + vb.width - xmax >= wMax;
+  for (const it of items){ const [X, Y] = P(...it.at); ((X < cx && roomL) || !roomR ? Lc : Rc).push({ ...it, X, Y }); }
+  let s = '';
+  let top = { [-1]: fs, [1]: fs + 30*k };
+  if (btn && svgEl.getScreenCTM()){ const r = btn.getBoundingClientRect(), q = new DOMPoint(r.right, r.bottom + 50).matrixTransform(svgEl.getScreenCTM().inverse());
+    if (q.y > 0) top[-1] = q.y + hgt; }
+  // the right column starts under the stats panel (top right), so pills never sit on the numbers
+  const stEl = document.getElementById('stats');
+  if (stEl && svgEl.getScreenCTM() && getComputedStyle(stEl).position === 'absolute'){ const r = stEl.getBoundingClientRect(), q = new DOMPoint(r.left, r.bottom + 8).matrixTransform(svgEl.getScreenCTM().inverse());
+    if (q.y > 0) top[1] = Math.max(top[1], q.y + hgt/2); }
+  for (const [col, side] of [[Lc, -1], [Rc, 1]]){
+    col.sort((a, b) => a.Y - b.Y);
+    let y = -1e9; for (const c of col){ c.py = Math.max(c.Y, y + gap, top[side]); y = c.py; }
+    const shift = col.length ? Math.max(0, col.reduce((a, c) => a + c.py - c.Y, 0) / col.length) : 0;
+    const room = col.length ? col[0].py - top[side] : 0; for (const c of col) c.py -= Math.min(shift, room);
+    for (const c of col){
+      c.n = ((window.__ln || (window.__ln = {}))[c.text] || (__ln[c.text] = Object.keys(__ln).length + 1)); const w = u ? hgt*(c.n > 9 ? 1.3 : 1) : c.text.length*fs*.62 + fs*1.5;
+      let px = side < 0 ? xmin - 10*k - w/2 : xmax + 10*k + w/2; px = Math.max(vb.x + w/2 + 2*k, Math.min(vb.x + vb.width - w/2 - 2*k, px));
+      const ex = px - side*w/2;
+      s += `<g class="tag${c.on ? ' on' : ''}" data-n="${c.n}" data-t="${c.text}"><path d="M${f(c.X)} ${f(c.Y)}L${f(ex + side*-4*k)} ${f(c.py)}L${f(ex)} ${f(c.py)}" fill="none" stroke="${INK}" stroke-width="1"/>`
+        + `<circle cx="${f(c.X)}" cy="${f(c.Y)}" r="${f(1.4*k)}" fill="${INK}"/>`
+        + `<rect x="${f(px - w/2)}" y="${f(c.py - hgt/2)}" width="${f(w)}" height="${f(hgt)}" rx="${f(hgt/2)}" fill="${c.on ? 'var(--accent,#f4b829)' : '#fff4d6'}" stroke="${INK}" stroke-width="1.2"/>`
+        + `<text x="${f(px)}" y="${f(c.py + fs*.36)}" font-size="${f(fs)}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800" letter-spacing=".04em" fill="${INK}">${u ? c.n : c.text}</text></g>`;
+    }
+  }
+  return s;
+}
+
+/* ---------- adegan ---------- */
+function scene(st, m){
+  const k = ease(st.xr || 0), back = facing([-1, 0, 0]);
+  let s = castShadow([...boxPts(0, 0, ZT - 3, TBX, TBY, ZT), [2, 2, 0], [TBX - 2, 2, 0], [TBX - 2, TBY - 2, 0], [2, TBY - 2, 0]]);
+  const hang = aqTube(hangOf(PY0 + 3), CORD, .25).svg + aqTube(hangOf(86), CORD, .25).svg;
+  s += (back ? '' : hang) + tableSvg() + (back ? hang : '');
+  const TT = on(PZ(ZT), rectUV(0, 0, TBX, TBY));
+  s += clipTo(TT, castShadow(TANK_PTS, ZT).split(SHADOW).join(mix(SHADOW, WOOD.l, .45)) + castShadow(PUMP_PTS, ZT));
+  const items = [
+    { box: [[TX0 - .3, TY0 - .3, TZ0], [TX1 + .3, TY1 + .3, LZ + 6]], svg: tankSvg(st, m) },
+    { box: [[PX0, PY0, ZT], [PX1, PY1 + 1.3, PZ1 + .8]], svg: pumpSvg(st, m, k) },
+    ...tubeSegs(HOSE_OUT, HOSE, .3), ...tubeSegs(PCORD, CORD, .25), ...tubeSegs(LCORD, CORD, .25) ];
+  s += byDepth(items);
+  const hd = (6 + st.hour) % 24, night = hd >= 18 && hd < 19 ? hd - 18 : (hd >= 19 || hd < 5) ? 1 : hd >= 5 && hd < 6 ? 6 - hd : 0;
+  if (night > .01){ const vb = document.getElementById('fig').viewBox.baseVal;
+    s += `<rect x="${f(vb.x - vb.width)}" y="${f(vb.y - vb.height)}" width="${f(vb.width*3)}" height="${f(vb.height*3)}" fill="#1c2948" opacity="${f(.3*night)}" pointer-events="none"/>`; }
+  const B = [0, TBX, 0, TBY, 0, LZ];
+  if (k > .6){ const amp = .5*Math.sin(st.vib)*st.aerK, on2 = st.aer;
+    s += aqCallouts([
+      { at: [PCX + 1.5, PY0 + 2.1, zb + 2.7], text: 'KUMPARAN', on: on2 },
+      { at: [PCX + 1, PY0 + 4.8, zb + 3.4 + amp], text: 'MAGNET', on: on2 },
+      { at: [PCX, PY0 + 10, zb + 1.85 + amp*.443], text: 'DIAFRAGMA', on: on2 },
+      { at: [PCX + 2.9, PY0 + 11, zb + .5], text: 'KATUP', on: on2 },
+      { at: [NZX, 25.2, ZT + 1.6], text: 'SELANG', on: on2 } ], B);
+  } else {
+    const s1 = st.snails[0], f0 = st.fish[0];
+    s += aqCallouts([
+      { at: [PLANTS[4].bx, PLANTS[4].by, SZ + 7], text: 'TANAMAN (BIOTIK)', on: st.light > .5 },
+      ...(f0 ? [{ at: f0.p, text: 'IKAN (BIOTIK)', on: st.fish.some(x => x.mode === 'makan') }] : []),
+      { at: [s1.p[0], s1.p[1], SZ + 2.4], text: 'SIPUT (BIOTIK)', on: st.sisa > .5 },
+      { at: [TX1 - .5, TY1 - 14, WL - 7], text: 'AIR (ABIOTIK)', on: false },
+      { at: [TX1 - .5, TY0 + 46, SZ - 1.2], text: 'PASIR (ABIOTIK)', on: false },
+      { at: [TX1 - 3, TY0 + 14, TZ1 - .4], text: 'CAHAYA (ABIOTIK)', on: st.light > .5 },
+      { at: [STONE_P[0], STONE_P[1], SZ + 1.4], text: 'BATU AERASI', on: st.aer } ], B);
+  }
+  return s;
+}
+
+/* ---------- perilaku ---------- */
+let ui;
+const aqQ = []; let aqBusy = false;
+function say(text){ if (!ui || aqQ.includes(text)) return; aqQ.push(text); if (aqQ.length > 2) aqQ.splice(0, aqQ.length - 2); pumpQ(); }   // ponytail: only the newest notes are kept, stale ones are dropped
+function pumpQ(){ if (aqBusy || !aqQ.length) return; const t = aqQ.shift(), ms = Math.max(2000, t.length*32); aqBusy = true; ui.flash(t, ms); setTimeout(() => { aqBusy = false; pumpQ(); }, ms + 250); }
+const once = (st, key, text) => { if (!st.said[key]){ st.said[key] = 1; say(text); } };
+const first = st => once(st, 'model', 'Model sederhana: oksigen dihitung tiap jam dari tanaman, aerator, ikan, sisa makanan');
+const litOf = st => st.lamp && isDayH(st.hour);
+const randIn = () => [FB.x0 + rnd()*(FB.x1 - FB.x0), FB.y0 + rnd()*(FB.y1 - FB.y0), FB.z0 + rnd()*(FB.z1 - FB.z0)];
+
+function toggleLamp(st){ first(st); st.lamp = !st.lamp;
+  if (st.lamp && !isDayH(st.hour)) say('Pengatur waktu: lampu hanya menyala pukul 06.00 sampai 18.00');
+  else if (st.lamp) say('Cahaya (abiotik) dipakai tanaman (produsen) untuk fotosintesis');
+  else say('Lampu padam: tanpa cahaya, tanaman tidak berfotosintesis'); }
+function toggleAer(st){ first(st); st.aer = !st.aer;
+  if (st.aer){ say('Aerator meniupkan udara: oksigen dari gelembung larut ke dalam air'); if (st.xrT) once(st, 'vib', 'Ilustrasi: getaran lengan diperlambat, aslinya 50 kali per detik'); }
+  else say('Aerator mati: oksigen hanya bertambah dari fotosintesis tanaman'); }
+function feed(st){ first(st);
+  st.flapT = 1; st.flapAt = st.t;
+  for (let i = 0; i < PINCH; i++) st.pellets.push({ x: HATCH[0] + 1.5 + rnd()*3.5, y: HATCH[2] + 1.5 + rnd()*5, z: TZ1 - .3, delay: .45 + i*.12, ph: rnd()*6 });
+  const hungry = st.fish.reduce((a, x) => a + Math.floor(x.app), 0);
+  if (hungry < 1) say('Ikan sudah kenyang: pelet akan tersisa dan menumpuk di dasar');
+  else once(st, 'makan', 'Ikan adalah konsumen: memakan pelet dan bernapas memakai oksigen'); }
+function addFish(st, n){ first(st);
+  for (let i = 0; i < n && st.fish.length < MAXF; i++) st.fish.push(makeFish(st.fish.length, [HATCH[0] + 3, HATCH[2] + 4 + i*1.5, WL - 2]));
+  if (st.fish.length >= 8) once(st, 'padat', 'Terlalu banyak ikan: ulah manusia yang membuat oksigen cepat habis');
+  else say('Ikan bertambah: konsumen lebih banyak, oksigen lebih cepat terpakai'); }
+function runDay(st){ first(st);
+  if (st.running) return say('Tunggu, satu hari sedang berjalan');
+  st.running = true; st.hour = 0;
+  once(st, 'biotik', 'Biotik (ikan, tanaman, siput) bergantung pada abiotik (air, cahaya, oksigen)');
+  if (!st.lamp) say('Lampu mati sepanjang hari: tanaman tidak berfotosintesis'); }
+
+function newTarget(fi, mode){
+  // megap: di permukaan, dekat kaca depan (di bawah tutup yang buram ikan tak terlihat)
+  if (mode === 'megap') return [FB.x1 - 2.5 + rnd()*2.5, FB.y0 + rnd()*(FB.y1 - FB.y0), WL - .7];
+  if (mode === 'lemas') return [Math.max(FB.x0, Math.min(FB.x1, fi.p[0] + (rnd() - .5)*4)), Math.max(FB.y0, Math.min(FB.y1, fi.p[1] + (rnd() - .5)*4)), SZ + 1.5];
+  // renang: lebih sering di bagian depan dan tengah; titik tujuan dijaga agar tidak tersembunyi di bawah tutup
+  const x = 15 + rnd()*(FB.x1 - 15), z = FB.z0 + rnd()*(FB.z1 - FB.z0);
+  return [x, FB.y0 + rnd()*(FB.y1 - FB.y0), Math.max(FB.z0, Math.min(z, TZ1 - 3 - (TX1 - x)))];
+}
+function fishStep(st, fi, dt){
+  let mode = st.cond === 2 ? 'lemas' : st.cond === 1 ? 'megap' : 'renang', pel = null;
+  if (mode !== 'lemas' && fi.app >= 1){ let bd = 1e9; for (const q of st.pellets) if (q.delay <= 0 && q.z < WL - .3){ const d = Math.hypot(q.x - fi.p[0], q.y - fi.p[1], q.z - fi.p[2]); if (d < bd){ bd = d; pel = q; } }
+    if (pel) mode = 'makan'; }
+  if (mode !== fi.mode || !fi.tgt){ fi.mode = mode; fi.tgt = newTarget(fi, mode); }
+  if (pel) fi.tgt = [pel.x, pel.y, pel.z];
+  const d = sub(fi.tgt, fi.p), dl = Math.hypot(...d);
+  if (pel && dl < 1.3){ st.pellets.splice(st.pellets.indexOf(pel), 1); fi.app -= 1; }
+  else if (!pel && dl < 1.5) fi.tgt = newTarget(fi, mode);
+  const speed = mode === 'makan' ? 7 : mode === 'megap' ? 2.4 : mode === 'lemas' ? .45 : 3.2*fi.spd;
+  const want = d.map(v => v/(dl || 1)*speed*(mode === 'makan' ? 1 : Math.min(1, dl/2 + .3)));
+  fi.v = fi.v.map((v, i) => v + (want[i] - v)*Math.min(1, dt*2.5));
+  fi.p = fi.p.map((v, i) => v + fi.v[i]*dt);
+  const zLo = mode === 'lemas' ? SZ + 1.2 : FB.z0, zHi = mode === 'megap' || mode === 'makan' ? WL - .5 : FB.z1;
+  fi.p = [Math.max(FB.x0, Math.min(FB.x1, fi.p[0])), Math.max(FB.y0, Math.min(FB.y1, fi.p[1])), Math.max(zLo, Math.min(zHi, fi.p[2]))];
+  const vh = Math.hypot(fi.v[0], fi.v[1]);
+  if (vh > .15){ let hz = Math.max(-.4, Math.min(.4, fi.v[2]/(Math.hypot(...fi.v) || 1)));
+    if (mode === 'megap' && fi.p[2] > WL - 1.5) hz = .45;
+    const tgtH = norm([fi.v[0]/vh*Math.sqrt(1 - hz*hz), fi.v[1]/vh*Math.sqrt(1 - hz*hz), hz]);
+    fi.h = norm(fi.h.map((v, i) => v + (tgtH[i] - v)*Math.min(1, dt*4))); }
+  fi.roll += ((mode === 'lemas' ? 1.0 : 0) - fi.roll)*Math.min(1, dt*1.5);
+  fi.ph += dt*(mode === 'lemas' ? 1.5 : 7 + Math.hypot(...fi.v)*1.5);
+}
+function step(dt){
+  const st = ui.st; st.t += dt;
+  // satu hari model
+  if (st.running){ let dh = dt*24/DAYS;
+    while (dh > 1e-9){ const h = Math.min(.25, dh, 24 - st.hour); dh -= h;
+      const before = st.hour;
+      st.O = clampO(st.O + oxyRate(st.O, litOf(st), st.aer, st.fish.length, st.sisa)*h);
+      st.sisa = Math.max(0, st.sisa*(1 - .03*h));
+      for (const fi of st.fish) fi.app = Math.min(2, fi.app + h/12);
+      st.hour += h;
+      if (before < 12 && st.hour >= 12 && st.lamp) once(st, 'malam', 'Malam: lampu padam, tanaman berhenti berfotosintesis');
+      if (st.hour >= 24 - 1e-9){ st.running = false; st.hour = 0; st.day += 1; say(`Hari ke-${st.day} dimulai. Oksigen ${fmt1(st.O)} mg/L`); break; } }
+    while (st.left.length > Math.round(st.sisa)) st.left.shift(); }
+  const c = condOf(st.O);
+  if (c !== st.cond){
+    if (c === 1 && st.cond === 0) say('Oksigen di bawah 4 mg/L: ikan megap-megap di permukaan air');
+    else if (c === 2) say('Bahaya! Oksigen di bawah 2 mg/L: ikan lemas. Nyalakan aerator');
+    else if (c === 0) say('Oksigen cukup lagi: ikan kembali berenang normal');
+    st.cond = c; }
+  st.light += ((litOf(st) ? 1 : 0) - st.light)*Math.min(1, dt*3);
+  st.aerK += ((st.aer ? 1 : 0) - st.aerK)*Math.min(1, dt*3);
+  st.vib += dt*2*Math.PI*3*st.aerK;
+  // tingkap pakan
+  if (st.flapT && st.t - st.flapAt > 1.4) st.flapT = 0;
+  st.flap += (st.flapT - st.flap)*Math.min(1, dt*6);
+  // gelembung dari batu aerasi, gelembung oksigen kecil dari daun saat fotosintesis
+  if (st.aerK > .5){ st.bAcc += dt*14; while (st.bAcc >= 1){ st.bAcc -= 1; st.bubbles.push({ x: STONE_P[0] + (rnd() - .5)*1.2, y: STONE_P[1] + (rnd() - .5)*1.2, z: SZ + 1.6, r: .25 + rnd()*.25, ph: rnd()*6, v: 10 + rnd()*4 }); } }
+  if (st.light > .5){ st.pAcc += dt*2.5; while (st.pAcc >= 1){ st.pAcc -= 1; const pl = PLANTS[Math.floor(rnd()*PLANTS.length)], pts = stemPts(pl, st.t), q = pts[8 + Math.floor(rnd()*9)];
+      st.bubbles.push({ x: q[0] + .6, y: q[1], z: q[2], r: .14 + rnd()*.06, ph: rnd()*6, v: 4 + rnd()*2, o2: 1 }); } }
+  for (const b of st.bubbles){ b.z += b.v*dt; b.ph += dt*5; b.x += Math.sin(b.ph)*.4*dt; b.y += Math.cos(b.ph*.8)*.4*dt; }
+  st.bubbles = st.bubbles.filter(b => b.z < WL - b.r);
+  // pelet: jatuh dari tingkap ke air, lalu tenggelam pelan; yang sampai pasir jadi sisa makanan
+  for (const q of st.pellets.slice()){
+    if (q.delay > 0){ q.delay -= dt; continue; }
+    if (q.z > WL) q.z -= 40*dt; else { q.z -= 2.4*dt; q.ph += dt*2; q.x += Math.sin(q.ph)*.3*dt; }
+    if (q.z <= SZ + .35){ st.pellets.splice(st.pellets.indexOf(q), 1); st.sisa += 1; st.left.push([q.x, q.y]);
+      once(st, 'urai', 'Bakteri dan siput (pengurai) menguraikan sisa makanan, memakai oksigen');
+      if (st.sisa >= 5) once(st, 'lebih', 'Makanan berlebihan menumpuk: ulah manusia yang mencemari ekosistem'); } }
+  for (const fi of st.fish) fishStep(st, fi, dt);
+  // siput merayap pelan
+  { const s1 = st.snails[0]; s1.p[1] += s1.dir*.35*dt; if (s1.p[1] > 76 || s1.p[1] < 58) s1.dir *= -1;
+    const s2 = st.snails[1]; s2.p[2] += s2.dir*.3*dt; if (s2.p[2] > SZ + 16 || s2.p[2] < SZ + 3) s2.dir *= -1; }
+  return true;
+}
+const btnSync = st => { for (const b of document.querySelectorAll('.act')){ const t = b.textContent.trim();
+  if (t === 'Lampu') b.setAttribute('aria-pressed', st.lamp); else if (t === 'Aerator') b.setAttribute('aria-pressed', st.aer); } };
+
+ui = mountFigure({
+  fig:'6', title:'Akuarium', turn:'full',
+  size:[TBX, TBY, LZ + 1], center:[TBX/2, TBY/2], palette:'mint',
+  state:{ lamp:true, aer:false, O:7, day:1, hour:0, running:false, sisa:0, left:[], fish:[], pellets:[], bubbles:[],
+    snails:[{ p:[26, 64, SZ], dir:1 }, { p:[20, TY1 - GL, SZ + 9], dir:1 }], flap:0, flapT:0, flapAt:0, t:0, light:1, aerK:0, vib:0,
+    cond:0, said:{}, bAcc:0, pAcc:0 },
+  scene,
+  stats: st => { btnSync(st); const hh = String(Math.floor((6 + st.hour) % 24)).padStart(2, '0');
+    return [
+      { label:'Oksigen', value:`${fmt1(st.O)} mg/L` },
+      { label:'Ikan', value:String(st.fish.length), small:true },
+      { label:'Hari ke-', value: st.running ? `${st.day} (${hh}.00)` : String(st.day), small:true },
+      { label:'Kondisi', value:['Sehat', 'Kurang oksigen', 'Bahaya'][st.cond], small:true } ]; },
+  buttons:[
+    { label:'Lampu', onClick: st => toggleLamp(st) },
+    { label:'Aerator', onClick: st => toggleAer(st) },
+    { label:'Beri makan', onClick: st => feed(st) },
+    { label:'Tambah ikan', choices: st => [1, 3].map(n => ({ label:`+${n} ikan`, disabled: st.fish.length + n > MAXF,
+        why:`Maksimal ${MAXF} ikan; sekarang sudah ${st.fish.length}`, onClick: st => addFish(st, n) })) },
+    { label:'Jalankan 1 hari', onClick: st => runDay(st) },
+  ],
+  acts:{ lamp: st => toggleLamp(st), pump: st => toggleAer(st), feed: st => feed(st) },
+  params:(st, q) => {
+    const n = q.has('fish') ? Math.max(0, Math.min(MAXF, +q.get('fish') | 0)) : 3;
+    for (let i = 0; i < n; i++) st.fish.push(makeFish(i));
+    if (q.has('lamp')) st.lamp = q.get('lamp') === '1';
+    if (q.has('aer')) st.aer = q.get('aer') === '1';
+    if (q.has('o')) st.O = clampO(parseFloat(q.get('o')) || 0);
+    if (q.has('sisa')){ st.sisa = Math.max(0, +q.get('sisa') || 0); for (let i = 0; i < Math.round(st.sisa); i++) st.left.push([TX0 + 3 + rnd()*(TX1 - TX0 - 6), TY0 + 3 + rnd()*(TY1 - TY0 - 6)]); }
+    if (q.has('day')) st.day = Math.max(1, +q.get('day') | 0);
+    if (q.has('hour')) st.hour = Math.max(0, Math.min(23.9, +q.get('hour') || 0));
+    if (q.get('run') === '1') st.running = true;
+    if (q.get('feed') === '1') for (let i = 0; i < PINCH; i++) st.pellets.push({ x: HATCH[0] + 1.5 + rnd()*3.5, y: HATCH[2] + 1.5 + rnd()*5, z: WL - 2 - i*3, delay: 0, ph: rnd()*6 });
+    if (q.get('flap') === '1'){ st.flap = st.flapT = 1; st.flapAt = 1e9; }
+    st.cond = condOf(st.O); st.light = litOf(st) ? 1 : 0; st.aerK = st.aer ? 1 : 0;
+    if (st.aer) for (let i = 0; i < 26; i++) st.bubbles.push({ x: STONE_P[0] + (rnd() - .5)*1.2, y: STONE_P[1] + (rnd() - .5)*1.2, z: SZ + 1.6 + rnd()*(WL - SZ - 2.5), r: .25 + rnd()*.25, ph: rnd()*6, v: 10 + rnd()*4 });
+    // ikan langsung menempati posisi sesuai kondisi oksigen (untuk tangkapan layar)
+    for (const fi of st.fish){ if (st.cond === 1){ fi.p = newTarget(fi, 'megap'); fi.mode = 'megap'; } else if (st.cond === 2){ fi.p[2] = SZ + 1.5; fi.mode = 'lemas'; fi.roll = 1; } }
+  },
+});
+xrMount(() => ui, () => '');
+const aqSnap = new URLSearchParams(location.search).get('snap');   // ?snap=ms: run the model that long at once, draw once, stop (still screenshots)
+if (aqSnap != null){ for (let t = 0; t < +aqSnap; t += 50) step(.05); ui.render(); }
+else {
+let aqLast = performance.now();   // ponytail: own 20 fps clock (the scene is heavy; 60 fps redraws stall phones and headless shots)
+setInterval(() => { const now = performance.now(), dt = Math.min(.1, (now - aqLast)/1000); aqLast = now; step(dt); ui.render(); }, 50);
+}
+</script></body></html>

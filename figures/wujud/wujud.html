@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Memanaskan es</title><style>@media (max-width:560px){.stats{flex-wrap:wrap;gap:2px 14px!important;max-width:100%}.stat .v{font-size:17px!important}.stat .k{font-size:10px}}</style></head><body>
+<script src="core.js"></script>
+<script>
+/* Gambar 2 — Memanaskan es sampai mendidih (Bab 2 Zat dan Perubahannya: wujud zat, model partikel, perubahan wujud).
+   x = kedalaman (depan di x besar), y = lebar (+y ke kiri penonton), z = atas. 1 satuan = 1 cm.
+
+   Langkah kerja nyata:
+   1. Gelas kimia 250 mL berisi es batu (100 g, -10 °C) diletakkan di atas kasa kawat di atas kaki tiga.
+   2. Termometer dijepit klem pada statif, ujung bawahnya masuk ke gelas (tidak menyentuh dasar).
+   3. Sumbu pembakar spiritus menyerap spiritus dari tangki; tutup dilepas dan sumbu dinyalakan.
+   4. Kalor api lewat kasa ke gelas: es naik suhu sampai 0 °C, lalu melebur pada suhu tetap 0 °C,
+      air naik suhu sampai 100 °C, lalu mendidih pada suhu tetap 100 °C (uap keluar, air berkurang).
+   5. Api dipadamkan: air melepas kalor ke udara dan mendingin pelan menuju suhu ruang 27 °C.
+
+   Model (tekanan 1 atm): kalor masuk Q = (P_api - h (T - 27)) dt.
+     c es 2,1 J/g°C, c air 4,2 J/g°C, kalor lebur 334 J/g, kalor uap 2260 J/g, h = 0,5 W/°C (rugi ke udara).
+     P_api: kecil 150 W, besar 300 W (kalor yang sampai ke gelas). Waktu model = waktu nyata × TIME_K (7).
+     Es -10 -> 0 °C 2100 J, melebur 33 400 J, air 0 -> 100 °C 42 000 J: api besar ±37 s nyata sampai mendidih.
+   ponytail: gambar es 7 kubus 2,3 cm (±80 g); massa model tetap 100 g.
+
+   Bagian:
+   MEJA     papan meja lab
+   STATIF   pelat dasar . mur kaki . batang statif . boss head + sekrup . lengan klem . palang . dua bantal penjepit . sekrup jepit
+   ALAT UKUR termometer kaca (bola, pipa kapiler, cairan merah, skala -10..110 °C)
+   PEMANAS  kaki tiga (cincin pipih + tiga kaki) . kasa kawat (anyaman + bagian tengah keramik)
+            pembakar spiritus (badan logam, leher, tabung sumbu, sumbu katun, spiritus di tangki) . tutup pembakar di meja
+   GELAS    gelas kimia 250 mL (dinding kaca, dasar tebal, garis ukur) . es batu / air / gelembung / embun / kabut uap
+   TEMBUS PANDANG: isi gelas sebagai partikel (padat teratur bergetar, cair rapat bergeser, gas jarang cepat),
+            sumbu dan spiritus di dalam pembakar. */
+
+/* ---------- ukuran ---------- */
+const BH = 1.5;                                   // tebal papan meja
+const CX = 20, CY = 20;                           // sumbu tegak gelas, kasa, pembakar
+const ZR = BH + 17;                               // atas cincin kaki tiga
+const RG0 = 5.2, RG1 = 5.8;                       // cincin kaki tiga (dalam, luar)
+const ZG1 = ZR + .15;                             // atas kasa
+const ZB0 = ZG1, BRo = 3.5, BRi = 3.35, ZIN = ZB0 + .25, ZRIM = ZB0 + 9.5;   // gelas kimia 250 mL
+const A_IN = Math.PI * BRi * BRi;                 // luas dalam (cm2): 1 g air = 1 cm3
+const TX = 20, TY = 22.65, TR = .35;              // termometer
+const ZT0 = ZIN + .5, ZT1 = ZT0 + 24;
+const TZ_LO = ZT0 + 3, TZ_HI = ZT1 - 2;           // skala -10 .. 110 °C
+const zOfT = t => TZ_LO + (t + 10) / 120 * (TZ_HI - TZ_LO);
+const ZC = ZT1 - 1.1;                                  // klem
+const SRX = 6.5, ZTOP = ZT1 + 2.1;                     // batang statif
+const BURN = [[0, 4.0], [.3, 4.3], [3.8, 4.3], [4.8, 3.4], [5.4, 1.5]];   // badan pembakar (dz, r)
+const ZWICK = BH + 7.45;                          // ujung sumbu
+const BTOP = boardTop(0, 5, 36, 37, BH, 2.5);
+
+/* ---------- fisika ---------- */
+const C_ICE = 2.1, C_W = 4.2, L_F = 334, L_V = 2260, T_ROOM = 27, H_LOSS = .5, TIME_K = 7, M0 = 100;
+const P_FIRE = { kecil: 150, besar: 300 };
+
+/* ---------- warna ---------- */
+const GLASS = { l:'#f6fcfd', m:'#dcedf2', d:'#b3d0d8' }, ICE = { l:'#f2fbfe', m:'#cdeaf6', d:'#9fcbdf' };
+const IRON = { l:'#6d6b68', m:'#4d4b48', d:'#2f2d2b' }, BASEM = matOf('#5d6b8a'), BRASS = { l:'#f1cf78', m:'#cfa850', d:'#8a6a28' };
+const CORK = matOf('#c99a62'), CERAM = '#f1ece1', WATER = '#8ccbea', SPIRIT = '#8a5cc7', PART = '#4f86d9', REDL = '#d8322a';
+
+/* ---------- pembantu ---------- */
+const wRing = (z, r, cx = CX, cy = CY, n = 28) => on(PZ(z), ellUV(cx, cy, r, r, n));
+const wArc = (z, r, a0, a1, n = 18) => Array.from({ length: n + 1 }, (_, i) => { const a = (a0 + (a1 - a0) * i / n) * Math.PI / 180; return [CX + r * Math.cos(a), CY + r * Math.sin(a), z]; });
+const fx1 = v => v.toFixed(1).replace('.', ',').replace(/^-0,0$/, '0,0');
+const dot2 = (p, r, col, w = .5, extra = '') => { const q = P(...p); return `<circle cx="${f(q[0])}" cy="${f(q[1])}" r="${f(r * CAM_K)}" fill="${col}" stroke="${INK}" stroke-width="${w}" ${extra}/>`; };
+const bbText = (p, str, size, col = INK, anchor = 'start') => { const q = P(...p); return `<text x="${f(q[0])}" y="${f(q[1])}" font-size="${size}" fill="${col}" text-anchor="${anchor}" font-family="ui-monospace,Menlo,monospace" font-weight="700">${str}</text>`; };
+const hdep = p => CAM_V[0] * p[0] + CAM_V[1] * p[1];     // kedalaman mendatar (untuk benda tegak)
+const cl01 = v => Math.max(0, Math.min(1, v));
+const tri = x => { const u = ((x % 2) + 2) % 2; return u < 1 ? u : 2 - u; };
+let wSeed = 7; const rnd = () => { wSeed = (wSeed * 16807) % 2147483647; return (wSeed - 1) / 2147483646; };
+// titik partikel cair (tetap), diambil sebanyak massa air
+const LIQ = Array.from({ length: 200 }, () => ({ u: rnd(), a: rnd() * 6.283, h: rnd(), p1: rnd() * 6.3, p2: rnd() * 6.3, p3: rnd() * 6.3 }));
+const GAS = Array.from({ length: 14 }, () => ({ vx: .9 + rnd(), vy: .9 + rnd(), vz: .7 + rnd() * .8, px: rnd() * 2, py: rnd() * 2, pz: rnd() * 2 }));
+const DEW = Array.from({ length: 22 }, () => ({ a: rnd() * 360, h: rnd(), r: .1 + rnd() * .1 }));
+// es: 4 kubus di dasar, 3 di atasnya (pusat relatif terhadap sumbu gelas)
+const CUBES = [[-1.15, -1.15, 0], [1.15, -1.15, 0], [-1.15, 1.15, 0], [1.15, 1.15, 0], [-1.15, -1.15, 1], [1.15, -1.15, 1], [0, 1.15, 1]];
+const zWater = st => ZIN + st.mLiq / A_IN;
+const speedOf = st => .25 + 1.5 * (st.T + 10) / 110;      // ponytail: kecepatan gerak partikel diperbesar (tetap naik dengan suhu)
+function cubesOf(st){
+  if (st.mIce <= .05) return [];
+  const s = 2.3 * Math.cbrt(st.mIce / M0), zw = zWater(st), z1 = Math.max(ZIN, zw - .9 * s);
+  return CUBES.map(([dx, dy, l]) => { const z0 = z1 + l * s; return [CX + dx - s / 2, CY + dy - s / 2, z0, CX + dx + s / 2, CY + dy + s / 2, z0 + s]; });
+}
+
+/* ---------- termometer: potongan dari z0 ke z1 (kaca, cairan merah, skala) ---------- */
+function thermo(st, z0, z1, bulb){
+  let s = '';
+  const zb = ZT0 + 1.8, zc = zOfT(st.T);
+  if (bulb){ s += rod([TX, TY, ZT0 + .45], [TX, TY, zb], .45, matOf('#e5574d'), toneI, .9) + dot2([TX, TY, ZT0 + .45], .45, '#e5574d', .8); }
+  const a = Math.max(z0, zb);
+  if (z1 > a){
+    s += rod([TX, TY, a], [TX, TY, z1], TR, GLASS, toneI, .9);
+    const c1 = Math.min(z1, zc);
+    if (c1 > a) s += `<path d="${pd([[TX, TY, a], [TX, TY, c1]], false)}" stroke="${REDL}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+    let tk = '', txt = '';
+    for (let t = -10; t <= 110; t += 10){ const z = zOfT(t); if (z < a || z > z1) continue;
+      const w = t % 50 === 0 ? .32 : .2, p = [TX + CAM_R[0] * .05, TY + CAM_R[1] * .05, z];
+      tk += pd([[p[0] - CAM_R[0] * w, p[1] - CAM_R[1] * w, z], [p[0] + CAM_R[0] * .08, p[1] + CAM_R[1] * .08, z]], false);
+      if (t % 50 === 0) txt += bbText([TX + CAM_R[0] * .55, TY + CAM_R[1] * .55, z - .2], String(t), .62); }
+    if (tk) s += `<path d="${tk}" stroke="${INK}" stroke-width=".6" fill="none"/>` + txt;
+  }
+  return s;
+}
+
+/* ---------- isi gelas ---------- */
+function contents(st, k){
+  const zw = zWater(st), cubes = cubesOf(st), wet = st.mLiq > .3;
+  const thBox = (z0, z1) => [[TX - TR, TY - TR, z0], [TX + TR, TY + TR, z1]];
+  // biasa: kubus es, termometer, gelembung, air, bagian es di atas air
+  let s = '';
+  const iceBox = (c, z0) => box(c[0], c[1], z0, c[3], c[4], c[5], ICE, toneI, .8);
+  s += byDepth([...cubes.map(c => ({ box: [[c[0], c[1], c[2]], [c[3], c[4], c[5]]], svg: iceBox(c, c[2]) })),
+    { box: thBox(ZT0, wet ? zw : ZRIM), svg: thermo(st, ZT0, wet ? zw : ZRIM, true) }]);
+  if (wet){
+    // gelembung: udara terlarut (>70 °C) lalu uap air saat mendidih
+    const nb = st.boil ? 8 : st.T > 70 && st.on ? 3 : 0;
+    for (let i = 0; i < nb; i++){ const ph = (st.clk * (st.boil ? .9 : .5) + i / nb) % 1, a = i * 2.4, r = .5 + (i % 3) * .8;
+      const p = [CX + r * Math.cos(a) + .15 * Math.sin(st.clk * 6 + i), CY + r * Math.sin(a), ZIN + .2 + ph * (zw - ZIN - .2)];
+      s += dot2(p, (st.boil ? .14 + .26 * ph : .08), '#ffffff', .45, 'fill-opacity=".55"'); }
+    s += `<g opacity=".42">` + loft(wRing(ZIN, BRi - .02), wRing(zw, BRi - .02), () => WATER) + `</g>`;
+    s += fill(pd(wRing(zw, BRi - .02)), '#c4e6f6', 'opacity=".6"') + ink(pd(wRing(zw, BRi - .02)), .6);
+    s += byDepth([...cubes.filter(c => c[5] > zw).map(c => ({ box: [[c[0], c[1], Math.max(c[2], zw)], [c[3], c[4], c[5]]], svg: iceBox(c, Math.max(c[2], zw)) })),
+      { box: thBox(zw, ZRIM), svg: thermo(st, zw, ZRIM, false) }]);
+  }
+  if (k <= 0) return s;
+  // tembus pandang: model partikel (warna sama: zat yang sama, air)
+  const v = st.pc, R = .24, pts = [];
+  let bonds = '';   // ikatan antarpartikel padat: susunan teratur
+  for (const c of cubes){ const sz = c[3] - c[0], n = sz > .8 ? 2 : 1, d = sz / n, g = i => c[0] + d * (i + .5), h = j => c[1] + d * (j + .5), e = l => c[2] + d * (l + .5);
+    if (n > 1) for (let i = 0; i < n; i++) for (let j = 0; j < n; j++){
+      bonds += pd([[g(i), h(j), e(0)], [g(i), h(j), e(n - 1)]], false) + pd([[g(i), h(0), e(j)], [g(i), h(n - 1), e(j)]], false) + pd([[g(0), h(i), e(j)], [g(n - 1), h(i), e(j)]], false); }
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let l = 0; l < n; l++){ const ph = i * 1.7 + j * 2.9 + l * 4.3 + c[0] * 3;
+      pts.push([c[0] + d * (i + .5) + .06 * Math.sin(v * 14 + ph), c[1] + d * (j + .5) + .06 * Math.sin(v * 15 + ph * 1.3), c[2] + d * (l + .5) + .06 * Math.sin(v * 13 + ph * .7)]); } }
+  const nL = Math.min(LIQ.length, Math.round(st.mLiq * 1.3)), hz = Math.max(0, zw - ZIN - .6);
+  for (let i = 0; i < nL; i++){ const q = LIQ[i], a = q.a + .5 * Math.sin(v * .6 + q.p1), r = Math.sqrt(q.u) * (BRi - .45),
+      h = cl01(q.h + .1 * Math.sin(v * .9 + q.p2)), p = [CX + r * Math.cos(a) + .07 * Math.sin(v * 9 + q.p3), CY + r * Math.sin(a) + .07 * Math.cos(v * 8 + q.p1), ZIN + .3 + h * hz];
+    if (Math.hypot(p[0] - TX, p[1] - TY) < .65) continue;
+    if (cubes.some(c => p[0] > c[0] - .2 && p[0] < c[3] + .2 && p[1] > c[1] - .2 && p[1] < c[4] + .2 && p[2] > c[2] - .2 && p[2] < c[5] + .2)) continue;
+    pts.push(p); }
+  let gs = '';
+  if (st.boil){ const top = ZRIM + 3;
+    for (const g of GAS){ pts.push([CX - 2.6 + 5.2 * tri(v * g.vx + g.px), CY - 2.6 + 5.2 * tri(v * g.vy + g.py), zw + .4 + tri(v * g.vz + g.pz) * (top - zw - .4)]); }
+    // gelembung uap: kantong gas di dalam air
+    for (let i = 0; i < 5; i++){ const ph = (st.clk * .9 + i / 5) % 1, a = i * 2.4 + 1, r = .6 + (i % 3) * .7, p = [CX + r * Math.cos(a), CY + r * Math.sin(a), ZIN + .3 + ph * Math.max(0, zw - ZIN - .5)];
+      const q = P(...p); gs += `<circle cx="${f(q[0])}" cy="${f(q[1])}" r="${f((.45 + .25 * ph) * CAM_K)}" fill="#ffffff" fill-opacity=".5" stroke="${INK}" stroke-width=".5" stroke-dasharray="1.5 1.2"/>` + dot2(p, R, PART, .5); }
+  }
+  pts.sort((a, b) => depthOf(a) - depthOf(b));
+  const tH = hdep([TX, TY]), circ = p => dot2(p, R, PART, .5);
+  const back = pts.filter(p => hdep(p) < tH).map(circ).join(''), front = pts.filter(p => hdep(p) >= tH).map(circ).join('');
+  return `<g opacity="${f(1 - .7 * k)}">${s}</g><g opacity="${f(k)}"><path d="${bonds}" stroke="#1c2948" stroke-width=".9" fill="none" opacity=".7"/>${back}${thermo(st, ZT0, ZRIM, true)}${front}${gs}</g>`;
+}
+
+/* ---------- gelas kimia ---------- */
+function marks(front){   // garis ukur 50..250 mL pada sisi tetap (sudut 45°)
+  const am = 45; let d = '', t = '';
+  for (const ml of [50, 100, 150, 200, 250]){ const z = ZIN + ml / A_IN, w = ml % 100 === 0 ? 9 : 5;
+    d += pd(wArc(z, BRo + .02, am - w, am + w, 4), false);
+    if (front && ml % 100 === 0) t += bbText(wArc(z, BRo, am + 12, am + 12, 1)[0].map((v, i) => i === 2 ? v + .3 : v), String(ml), .75); }
+  if (front) t += bbText([CX + BRo * Math.cos(.785), CY + BRo * Math.sin(.785), ZIN + 7.7], '250 mL', .75, INK, 'middle');
+  return `<path d="${d}" stroke="${INK}" stroke-width="1.6" opacity=".35" fill="none"/><path d="${d}" stroke="#ffffff" stroke-width="1" fill="none"/>` + t;
+}
+function beaker(st, k){
+  const A = wRing(ZB0, BRo), B = wRing(ZRIM, BRo), front = Math.cos((45 - YAW) * Math.PI / 180) > .15;
+  let s = `<g opacity=".55">` + loft(A, B, n => mix(toneI(n.map(v => -v), GLASS), '#ffffff', .25), true) + `</g>`;
+  s += fill(pd(wRing(ZIN, BRi)), '#dcecef', 'opacity=".45"') + ink(pd(wRing(ZIN, BRi)), .5);
+  if (!front) s += `<g opacity=".45">${marks(false)}</g>`;
+  const fh = farHalf(), nh = nearHalf();
+  s += ink(pd(wArc(ZRIM, BRo, fh[0], fh[1]), false), 1) + ink(pd(wArc(ZRIM, BRi, fh[0], fh[1]), false), .6);
+  s += contents(st, k);
+  // embun: di dalam saat mendidih (uap mengembun di kaca dingin bagian atas), di luar saat isi dingin (uap air udara)
+  const zw = zWater(st), dOut = cl01((10 - st.T) / 10) * .8;
+  let dw = '';
+  for (const q of DEW){ const a = q.a * Math.PI / 180, nearOK = Math.cos(a - YAW * Math.PI / 180) > 0;
+    if (st.dew > .02){ const z = zw + .6 + q.h * (ZRIM - zw - 1); if (z < ZRIM - .3) dw += dot2([CX + BRi * Math.cos(a), CY + BRi * Math.sin(a), z], q.r, '#ffffff', .3, `opacity="${f(st.dew)}"`); }
+    if (dOut > .02 && nearOK){ const z = ZB0 + .5 + q.h * Math.min(5, ZRIM - ZB0 - 1); dw += dot2([CX + BRo * Math.cos(a), CY + BRo * Math.sin(a), z], q.r, '#ffffff', .3, `opacity="${f(dOut)}"`); } }
+  s += dw;
+  s += `<g opacity=".26">` + loft(A, B, n => toneI(n, GLASS)) + `</g>`;
+  let streak = '';
+  for (const da of [32, 44]){ const a = (YAW + da) * Math.PI / 180; streak += pd([[CX + BRo * Math.cos(a), CY + BRo * Math.sin(a), ZB0 + 1.2], [CX + BRo * Math.cos(a), CY + BRo * Math.sin(a), ZRIM - 1.2]], false); }
+  s += `<path d="${streak}" stroke="#ffffff" stroke-width="1.6" opacity=".55" fill="none" stroke-linecap="round"/>`;
+  if (front) s += marks(true);
+  s += ink(pd(wArc(ZRIM, BRo, nh[0], nh[1]), false), 1.2) + ink(pd(wArc(ZRIM, BRi, nh[0], nh[1]), false), .6) + ink(pd(wArc(ZB0, BRo, nh[0], nh[1]), false), 1);
+  s += hullInk([...A, ...B], 1.7);
+  return s;
+}
+
+/* ---------- pembakar spiritus ---------- */
+function burner(st, m, k){
+  const rings = BURN.map(([dz, r]) => wRing(BH + dz, r));
+  let body = '';
+  for (let i = 0; i < rings.length - 1; i++) body += loft(rings[i], rings[i + 1], n => tone(n, m));
+  body += hullInk(rings.flat(), 2.2) + ink(pd(rings[2]), .7);
+  const top = cyl(CX, CY, BH + 5.4, BH + 6.3, 1.5, BRASS, toneI, 1) + cyl(CX, CY, BH + 6.3, BH + 7.1, .55, BRASS, toneI, .8)
+    + cyl(CX, CY, BH + 7.1, ZWICK, .42, matOf('#efe6cf'), toneI, .7) + fill(pd(wRing(ZWICK, .42, CX, CY, 12)), '#3b302a');
+  if (k <= 0) return body + top;
+  const lvl = BH + 2.8;
+  const mech = cyl(CX, CY, BH + .5, BH + 6.3, .4, matOf('#efe6cf'), toneI, .7)
+    + `<g opacity=".7">` + loft(wRing(BH + .3, 4.0), wRing(lvl, 4.15), () => SPIRIT) + fill(pd(wRing(lvl, 4.15)), '#b48ae6') + `</g>` + ink(pd(wRing(lvl, 4.15)), .6);
+  const far = `<g opacity="${f(.5 * k)}">` + loft(rings[1], rings[2], n => mix(toneI(n.map(v => -v), m), '#f2efe7', .55), true) + `</g>`;
+  return far + `<g opacity="${f(1 - .8 * k)}">${body}</g><g opacity="${f(k)}">${mech}</g>` + top;
+}
+function flame(st){
+  if (st.fl < .02) return '';
+  const h = (3.6 + 3.2 * st.big) * st.fl * (1 + .05 * Math.sin(st.clk * 17)), W = (.9 + .45 * st.big) * Math.min(1, st.fl * 1.5);
+  const out = (hh, ww) => { const L2 = [], R2 = [];
+    for (let i = 0; i <= 12; i++){ const t = i / 12, w = ww * Math.sin(Math.PI * (.12 + .88 * Math.pow(t, .6))), sw = t * t * .25 * Math.sin(st.clk * 11 + t * 2) * hh / 5;
+      L2.push([CX + CAM_R[0] * (sw - w), CY + CAM_R[1] * (sw - w), ZWICK - .1 + t * hh]); R2.unshift([CX + CAM_R[0] * (sw + w), CY + CAM_R[1] * (sw + w), ZWICK - .1 + t * hh]); }
+    return pd([...L2, ...R2]); };
+  return fill(out(h, W), '#ffb43a', 'opacity=".55"') + fill(out(h * .78, W * .72), '#ffd979', 'opacity=".55"') + fill(out(h * .45, W * .5), '#5aa7ff', 'opacity=".85"')
+    + `<path d="${out(h, W)}" fill="none" stroke="#d9771c" stroke-width=".6" opacity=".7"/>`;
+}
+
+/* ---------- kaki tiga dan kasa ---------- */
+const LEGS = [0, 120, 240].map(a => { const r = a * Math.PI / 180; return [[CX + (RG0 + RG1) / 2 * Math.cos(r), CY + (RG0 + RG1) / 2 * Math.sin(r), ZR - .4], [CX + 8.5 * Math.cos(r), CY + 8.5 * Math.sin(r), BH]]; });
+function tripodRing(){
+  const zi = ZR - .4, O0 = wRing(zi, RG1), O1 = wRing(ZR, RG1), I0 = wRing(zi, RG0), I1 = wRing(ZR, RG0);
+  return loft(I0, I1, n => toneI(n, IRON), true) + loft(O0, O1, n => toneI(n, IRON)) + fill(pd(O1) + pd(I1), IRON.l, 'fill-rule="evenodd"') + ink(pd(O1), .8) + ink(pd(I1), .6) + hullInk([...O0, ...O1], 1.2);
+}
+function gauze(st){
+  const a = CX - 6.5, b = CX + 6.5, z = ZR, zt = ZG1;
+  let s = box(a, a, z, b, b, zt, matOf('#8c9396'), toneI, 1);
+  let d = ''; for (let u = a + .65; u < b - .3; u += .65) d += pd([[u, a + .3, zt], [u, b - .3, zt]], false) + pd([[a + .3, u, zt], [b - .3, u, zt]], false);
+  s += fill(pd(on(PZ(zt), rectUV(a + .3, a + .3, b - .3, b - .3))), '#b9bfc1') + `<path d="${d}" stroke="#6d7477" stroke-width=".45" fill="none"/>`;
+  const glow = st.fl * (.25 + .35 * st.big);
+  s += fill(pd(wRing(zt + .01, 4)), CERAM) + fill(pd(wRing(zt + .02, 3.2)), '#ff8a3d', `opacity="${f(glow * .35)}"`) + ink(pd(wRing(zt + .01, 4)), .7);
+  return s;
+}
+
+/* ---------- statif dan klem ---------- */
+function stand(){
+  const parts = [], put = (b, svg) => parts.push({ box: b, svg });
+  const zp = BH + 1.2, DK = IRON;
+  put([[1.5, 10, BH], [11.5, 33, zp]], box(1.5, 10, BH, 11.5, 33, zp, BASEM, toneI, 1.1) + ink(pd(on(PZ(zp + .01), rectUV(2.3, 10.8, 10.7, 32.2))), .4));
+  put([[SRX - .9, TY - .9, zp], [SRX + .9, TY + .9, zp + .5]], cyl(SRX, TY, zp, zp + .5, .9, DK, toneI, .8));
+  put([[SRX - .55, TY - .55, zp + .5], [SRX + .55, TY + .55, ZC - 1.2]], rod([SRX, TY, zp + .5], [SRX, TY, ZC - 1.2], .5, METAL, toneI, 1));
+  put([[5.3, TY - 1.2, ZC - 1.2], [7.7, TY + 1.2, ZC + 1.2]], box(5.3, TY - 1.2, ZC - 1.2, 7.7, TY + 1.2, ZC + 1.2, DK, toneI, 1));
+  put([[SRX - .55, TY - .55, ZC + 1.2], [SRX + .55, TY + .55, ZTOP]], rod([SRX, TY, ZC + 1.2], [SRX, TY, ZTOP], .5, METAL, toneI, 1));
+  put([[SRX - .6, TY - 2.8, ZC - .6], [SRX + .6, TY - 1.2, ZC + .6]], rod([SRX, TY - 1.2, ZC], [SRX, TY - 2.2, ZC], .2, METAL, toneI, .6) + rod([SRX, TY - 2.2, ZC], [SRX, TY - 2.8, ZC], .6, DK, toneI, .8));
+  put([[7.7, TY - .3, ZC - .3], [18.6, TY + .3, ZC + .3]], rod([7.7, TY, ZC], [18.6, TY, ZC], .3, METAL, toneI, .9));
+  put([[18.6, 21.75, ZC - .45], [19.0, 23.55, ZC + .45]], box(18.6, 21.75, ZC - .45, 19.0, 23.55, ZC + .45, METAL, toneI, .7));
+  put([[19.0, 21.75, ZC - .7], [21.0, 22.3, ZC + .7]], box(19.0, 21.75, ZC - .7, 21.0, 22.3, ZC + .7, CORK, toneI, .7));
+  put([[19.0, 23.0, ZC - .7], [21.0, 23.55, ZC + .7]], box(19.0, 23.0, ZC - .7, 21.0, 23.55, ZC + .7, CORK, toneI, .7));
+  put([[19.55, 23.55, ZC - .45], [20.45, 24.9, ZC + .45]], rod([20, 23.55, ZC], [20, 24.4, ZC], .15, METAL, toneI, .5) + rod([20, 24.4, ZC], [20, 24.9, ZC], .45, DK, toneI, .7));
+  return parts;
+}
+
+/* ---------- bayangan ---------- */
+function shadows(){
+  const sets = [
+    [...wRing(BH, 4.3), ...wRing(BH + 5.4, 1.5)],
+    ...LEGS.map(([a, b]) => [a, b, [a[0] + .3, a[1] + .3, a[2]], [b[0] + .3, b[1] + .3, b[2]]]),
+    [...on(PZ(ZR), rectUV(CX - 6.5, CY - 6.5, CX + 6.5, CY + 6.5)), ...wRing(ZRIM, BRo)],
+    [[1.5, 10, BH + 1.2], [11.5, 10, BH + 1.2], [11.5, 33, BH + 1.2], [1.5, 33, BH + 1.2]],
+    [[SRX - .5, TY, BH], [SRX + .5, TY, BH], [SRX - .5, TY, ZTOP], [SRX + .5, TY, ZTOP]],
+    [[7.7, TY - .3, ZC], [21, TY - .3, ZC], [21, TY + .9, ZC], [7.7, TY + .3, ZC]],
+    [[TX - .35, TY, ZRIM], [TX + .35, TY, ZRIM], [TX - .35, TY, ZT1], [TX + .35, TY, ZT1]],
+    [...wRing(BH, 1.6, 31, 9.5, 12), ...wRing(BH + 2, 1.6, 31, 9.5, 12)],
+  ];
+  return clipTo(BTOP, sets.map(p => castShadow(p, BH)).join(''));
+}
+
+/* ---------- uap / kabut di atas gelas ---------- */
+function steam(st){
+  if (st.steam < .02) return '';
+  let s = '';
+  for (let i = 0; i < 6; i++){ const ph = (st.clk * .45 + i / 6) % 1, p = [CX + 1.4 * Math.sin(i * 2.1 + ph * 3), CY + 1.4 * Math.cos(i * 1.7 + ph * 2), ZRIM + .3 + ph * 8];
+    const q = P(...p); s += `<circle cx="${f(q[0])}" cy="${f(q[1])}" r="${f((.7 + 1.6 * ph) * CAM_K)}" fill="#ffffff" opacity="${f(.55 * st.steam * (1 - ph))}" stroke="#b8c9d0" stroke-width=".5"/>`; }
+  return s;
+}
+
+/* ---------- urutan gambar: urut topologis dari sepOrder (Array.sort dengan pembanding tak transitif bisa salah) ---------- */
+function wSort(parts){
+  parts = parts.filter(Boolean); const n = parts.length, pre = parts.map(() => new Set()), dep = parts.map(p => depthOf(p.at || boxMid(p.box)));
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++){ const o = sepOrder(parts[i], parts[j]); if (o < 0) pre[j].add(i); else if (o > 0) pre[i].add(j); }
+  const done = new Array(n).fill(false), out = [];
+  for (let c = 0; c < n; c++){
+    let best = -1;
+    for (let i = 0; i < n; i++) if (!done[i] && [...pre[i]].every(j => done[j]) && (best < 0 || dep[i] < dep[best])) best = i;
+    if (best < 0) for (let i = 0; i < n; i++) if (!done[i] && (best < 0 || dep[i] < dep[best])) best = i;   // putaran: ambil yang terjauh
+    done[best] = true; out.push(parts[best].svg); }
+  return out.join('');
+}
+
+/* ---------- adegan ---------- */
+function scene(st, m){
+  const k = ease(st.xr || 0);
+  let s = board(0, 5, 36, 37, BH, 2.5, WOOD) + shadows();
+  const parts = [
+    ...stand(),
+    { box: [[CX - 4.4, CY - 4.4, BH], [CX + 4.4, CY + 4.4, ZWICK]], svg: burner(st, m, k) },
+    { box: [[CX - 1.4, CY - 1.4, ZWICK], [CX + 1.4, CY + 1.4, ZR - .4]], svg: flame(st) },
+    ...LEGS.map(([a, b]) => ({ box: [[Math.min(a[0], b[0]) - .4, Math.min(a[1], b[1]) - .4, BH], [Math.max(a[0], b[0]) + .4, Math.max(a[1], b[1]) + .4, ZR - .4]],
+      svg: rod(a, b, .35, IRON, toneI, 1) + cyl(b[0], b[1], BH, BH + .3, .55, IRON, toneI, .7) })),
+    { box: [[CX - RG1, CY - RG1, ZR - .4], [CX + RG1, CY + RG1, ZR]], svg: tripodRing() },
+    { box: [[CX - 6.5, CY - 6.5, ZR], [CX + 6.5, CY + 6.5, ZG1]], svg: gauze(st) },
+    { box: [[CX - BRo, CY - BRo, ZB0], [CX + BRo, CY + BRo, ZRIM]], svg: beaker(st, k) },
+    { box: [[TX - TR, TY - TR, ZRIM], [TX + TR, TY + TR, ZT1]], svg: thermo(st, ZRIM, ZT1, false) + rod([TX, TY, ZT1 - .01], [TX, TY, ZT1], TR, GLASS, toneI, .9) },
+    { box: [[CX - 3, CY - 3, ZRIM + .01], [CX + 3, CY + 3, ZRIM + 9]], svg: steam(st) },
+    { box: [[29.4, 7.9, BH], [32.6, 11.1, BH + 2]], svg: cyl(31, 9.5, BH, BH + 2, 1.6, BRASS, toneI, 1.1) + ink(pd(wRing(BH + 2, 1.1, 31, 9.5, 16)), .5) },
+  ];
+  s += wSort(parts);
+  // label
+  const zw = zWater(st), cubes = cubesOf(st);
+  const items = [
+    { at: [CX + BRo * .7, CY - BRo * .7, ZB0 + 6.5], text: 'GELAS KIMIA', on: false },
+    { at: [TX, TY, 33], text: 'TERMOMETER', on: st.started },
+    { at: [CX + 6.2, CY - 5, ZG1], text: 'KASA', on: st.fl > .1 },
+    { at: avg(LEGS[0]), text: 'KAKI TIGA', on: false },
+    { at: [CX + 4.3 * .7, CY - 4.3 * .7, BH + 2.5], text: 'PEMBAKAR SPIRITUS', on: st.fl > .1 },
+    { at: [SRX, TY, 30], text: 'STATIF', on: false },
+  ];
+  if (k > .6){
+    items.push({ at: [CX, CY, BH + 4.6], text: 'SUMBU', on: st.fl > .1 }, { at: [CX + 2.4, CY - 2.4, BH + 1.6], text: 'SPIRITUS', on: st.fl > .1 });
+    if (cubes.length){ const c = cubes[1]; items.push({ at: [c[3], (c[1] + c[4]) / 2, (c[2] + c[5]) / 2], text: 'PARTIKEL PADAT', on: st.mIce > 0 && st.T === 0 && st.on }); }
+    if (st.mLiq > 3) items.push({ at: [CX + 2.2, CY - 2.2, (ZIN + zw) / 2], text: 'PARTIKEL CAIR', on: st.mIce === 0 && !st.boil && st.on });
+    if (st.boil) items.push({ at: [CX + 1.5, CY - 1.5, ZRIM + 1], text: 'PARTIKEL GAS', on: true });
+  }
+  s += xrCallouts(items, [0, 36, 5, 37, 0, ZTOP]);
+  return s;
+}
+
+/* ---------- perilaku ---------- */
+let ui;
+const SNAP = +new URLSearchParams(location.search).get('snap') / 1000 || 0;   // uji: hentikan animasi setelah snap ms (untuk tangkapan layar)
+const sayQ = []; let sayBusy = false;
+function say(t){ sayQ.push(t); if (!sayBusy) sayNext(); }
+function sayNext(){ const t = sayQ.shift(); if (!t){ sayBusy = false; return; } sayBusy = true; ui.flash(t, 2700); setTimeout(sayNext, 2900); }
+function once(st, key, text){ if (!st.seen[key]){ st.seen[key] = 1; say(text); } }
+
+function physStep(st, dtm){
+  let Q = ((st.on ? P_FIRE[st.fire] * st.fl : 0) - H_LOSS * (st.T - T_ROOM)) * dtm;
+  st.boil = false;
+  for (let g = 0; g < 4 && Math.abs(Q) > 1e-9; g++){
+    if (st.mIce > 0 && st.T < 0){                       // es menghangat
+      const c = st.mIce * C_ICE + st.mLiq * C_W, Tn = st.T + Q / c;
+      if (Tn < 0){ st.T = Tn; Q = 0; } else { Q -= c * (0 - st.T); st.T = 0; }
+    } else if (st.mIce > 0){                            // melebur pada 0 °C
+      if (Q > 0){ const dm = Math.min(st.mIce, Q / L_F); st.mIce -= dm; st.mLiq += dm; Q -= dm * L_F; if (st.mIce < 1e-6){ st.mLiq += st.mIce; st.mIce = 0; } }
+      else Q = 0;                                       // ponytail: tanpa membeku lagi (ruang 27 °C)
+    } else {
+      const c = st.mLiq * C_W; if (c <= 0){ Q = 0; break; }
+      if (st.T < 100 || Q < 0){ const Tn = st.T + Q / c; if (Tn <= 100){ st.T = Tn; Q = 0; } else { Q -= c * (100 - st.T); st.T = 100; } }
+      else { const dm = Math.min(st.mLiq, Q / L_V); st.mLiq -= dm; st.mVap += dm; Q = 0; st.boil = true; }   // mendidih
+    }
+  }
+}
+function tick(dt){
+  const st = ui.st;
+  st.clk += dt; st.pc += dt * speedOf(st);
+  st.fl += Math.sign((st.on ? 1 : 0) - st.fl) * Math.min(Math.abs((st.on ? 1 : 0) - st.fl), dt / .6);
+  const bt = st.fire === 'besar' ? 1 : 0; st.big += Math.sign(bt - st.big) * Math.min(Math.abs(bt - st.big), dt / .5);
+  if (st.started){
+    const dtm = dt * TIME_K; st.t += dtm; physStep(st, dtm);
+    if (st.mIce > 0 && st.T === 0 && st.mLiq > .2) once(st, 'melt', 'Melebur: suhu tetap 0 °C, kalor dipakai mengubah wujud');
+    if (st.seen.melt && st.mIce === 0 && st.T > .5) once(st, 'melted', 'Semua es mencair; kini kalor menaikkan suhu air');
+    if (st.boil){ once(st, 'boil', 'Mendidih pada 100 °C (1 atm): suhu tetap, air berubah menjadi uap'); st.boilT += dt; }
+    if (st.boilT > 5) once(st, 'dew', 'Uap mengembun jadi titik air di kaca dan kabut putih di atas gelas');
+    if (st.on && st.mLiq < 25 && st.mIce === 0){ st.on = false; say('Air tinggal sedikit; pembakar dipadamkan agar gelas tidak kering'); }
+  }
+  st.dew = st.boil ? Math.min(1, st.dew + dt / 5) : Math.max(0, st.dew - dt / 40);
+  const sT = st.boil ? 1 : st.mIce === 0 && st.T > 75 ? (st.T - 75) / 25 * .5 : 0;
+  st.steam += (sT - st.steam) * Math.min(1, dt * 1.5);
+  if (st.xr > .5) once(st, 'xr', 'Ilustrasi: partikel diperbesar, geraknya dipercepat agar terlihat');
+  return !(SNAP && st.clk > SNAP);   // ponytail: satu putaran terus-menerus (api berkedip, partikel bergetar); hentikan saat diam bila perlu hemat baterai
+}
+function toggleFire(st){
+  if (!st.on){
+    if (st.mIce === 0 && st.mLiq < 25) return say('Air hampir habis; tekan Ulangi dengan es dulu');
+    st.on = true;
+    if (!st.started){ st.started = true; say('Ilustrasi: waktu dipercepat 7 kali agar tidak menunggu lama'); }
+  } else { st.on = false; say('Pembakar padam: air mendingin pelan menuju suhu ruang 27 °C'); }
+}
+function setFire(st, v){ st.fire = v; say(`Api ${v}: sekitar ${P_FIRE[v]} J kalor per detik masuk ke gelas`); }
+function resetIce(st){
+  Object.assign(st, { on: false, started: false, T: -10, mIce: M0, mLiq: 0, mVap: 0, t: 0, boil: false, boilT: 0, dew: 0, steam: 0, seen: { xr: st.seen.xr } });
+  say('Gelas diisi lagi 100 g es bersuhu -10 °C');
+}
+const wujudOf = st => st.mIce > 0 && st.mLiq < .05 ? 'Padat' : st.mIce > 0 ? 'Padat + cair' : st.boil ? 'Cair + gas' : 'Cair';
+
+ui = mountFigure({
+  fig: '2', turn: 'full', title: 'Memanaskan es sampai mendidih', credit: false,
+  size: [36, 37, ZTOP], center: [18, 21], palette: 'mustard',
+  state: { on: false, started: false, fire: 'besar', fl: 0, big: 1, T: -10, mIce: M0, mLiq: 0, mVap: 0, t: 0, clk: 0, pc: 0,
+    boil: false, boilT: 0, dew: 0, steam: 0, seen: {} },
+  scene,
+  readout: st => `${fx1(st.T)} °C · ${wujudOf(st)}`,
+  stats: st => [
+    { label: 'Suhu', value: `${fx1(st.T)} °C` },
+    { label: 'Wujud', value: wujudOf(st), small: true },
+    { label: 'Waktu', value: `${fx1(st.t / 60)} menit`, small: true } ],
+  buttons: [
+    { label: 'Nyalakan pembakar', onClick: st => toggleFire(st) },
+    { label: 'Besar api', choices: st => ['kecil', 'besar'].map(v => ({ label: `${v === 'kecil' ? 'Kecil' : 'Besar'} (${P_FIRE[v]} W)`, current: st.fire === v, onClick: s2 => setFire(s2, v) })) },
+    { label: 'Ulangi dengan es', onClick: st => resetIce(st) },
+  ],
+  params: (st, q) => {
+    // ?T=0&ice=50&liq=50&on=1&fire=kecil&tmin=3  (ice/liq dalam gram)
+    if (q.has('T')) st.T = +q.get('T');
+    if (q.has('ice')) st.mIce = +q.get('ice');
+    if (q.has('liq')) st.mLiq = +q.get('liq');
+    if (q.has('tmin')) st.t = 60 * +q.get('tmin');
+    if (q.get('fire') === 'kecil'){ st.fire = 'kecil'; st.big = 0; }
+    if (q.get('on') === '1'){ st.on = true; st.fl = 1; }
+    if (['T', 'ice', 'liq', 'on'].some(n => q.has(n))){ st.started = true; st.seen = { melt: 1, melted: 1, boil: 1, dew: 1, xr: 1 }; }
+    if (st.T >= 100 && st.on && st.mIce === 0){ st.boil = true; st.dew = 1; st.steam = 1; st.boilT = 9; }
+  },
+});
+xrMount(() => ui, () => '');
+{ const r1 = ui.render; ui.render = () => { r1(); const b = document.querySelector('#btns .act'), t = ui.st.on ? 'Padamkan pembakar' : 'Nyalakan pembakar'; if (b && b.textContent !== t) b.textContent = t; }; }
+ui.animate(tick);
+</script>
+</body></html>

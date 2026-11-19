@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orrery</title><style>@media (max-width:560px){html body .stats{flex-wrap:wrap;justify-content:flex-start;gap:6px 16px;max-width:100%}html body .stat .k{font-size:9.5px}html body .stat .v{font-size:16px!important}}</style></head><body>
+<script src="core.js"></script>
+<script>
+/* Orrery (tellurion) meja — Bab 7 Bumi dan Tata Surya.
+   x = kedalaman (depan di x besar), y = lebar (+y ke kiri penonton), z = atas. 1 satuan ~ 0,5 cm.
+
+   CARA KERJA NYATA
+   1. Engkol di depan kotak diputar: 1 putaran = 1 hari. Poros engkol membawa ulir (worm, 1 alur).
+   2. Ulir memutar roda ulir (40 gigi) pada poros antara; di poros itu ada pinion 8 gigi.
+   3. Pinion memutar roda gigi besar (73 gigi) yang terpasang pada POROS berongga di tengah.
+      Rasio 40 x 73/8 = 365 putaran engkol per putaran lengan (model: 365,25 hari; gigi bulat tidak bisa pas 365,25).
+   4. POROS keluar lewat tutup kotak dan memutar LENGAN Bumi: 1 putaran per 365,25 hari (revolusi).
+   5. Di dalam poros berongga ada tiang diam: membawa lampu MATAHARI dan puli besar yang tidak berputar.
+   6. Sabuk silang dari puli diam (jari-jari 14,86) ke puli kecil Bulan (1,2) di ujung lengan: rasio 12,38
+      = 365,25 / 29,5, jadi lengan Bulan berputar 1 kali tiap 29,5 hari terhadap lengan Bumi (bulan sinodis).
+      Sabuk disilang supaya arah putar Bulan sama dengan arah lengan (berlawanan jarum jam dilihat dari utara).
+   7. Bumi duduk miring 23,5° pada sumbunya; arah sumbu tetap ke satu arah ruang (+y) sepanjang revolusi.
+   MODEL (hari ke-d, d = 0 = 1 Januari pukul 00.00 waktu setempat Indonesia bagian tengah)
+     revolusi: sudut Bumi = 180° + 360°(d - 78,8)/365,25 (ekuinoks Maret pada d = 78,8)
+     bujur ekliptika Matahari λ = 360°(d - 78,8)/365,25  -> musim di utara: 0-90 Semi, 90-180 Panas, 180-270 Gugur, 270-360 Dingin
+     fase Bulan: sudut Matahari-Bumi-Bulan, f = ((d - 10)/29,5) mod 1 (Bulan baru pada d = 10)
+     rotasi: titik Indonesia (2° LS, 118° BT) menghadap Matahari ketika pukul 12.00 (frac(d) = 0,5)
+     gerhana: orbit Bulan miring 5,14°, simpul tetap pada arah 20°. Lintang Bulan β = 5,14° sin(sudut Bulan - 20°).
+       Bulan baru dengan |β| < 1,5° -> gerhana Matahari; purnama dengan |β| < 1,0° -> gerhana Bulan.
+     naik-turun lengan Bulan digambar 3x lebih besar agar terlihat (diberitahu lewat flash).
+   DAFTAR BAGIAN
+   KOTAK   kotak kayu . empat kaki . pelat nama . bus poros engkol
+   GERAK   engkol (bos, lengan, pegangan) . poros engkol . dua dudukan bantalan . ulir . roda ulir 40 . poros antara .
+           pinion 8 . roda gigi 73 . POROS berongga . bantalan lantai . hub lengan . LENGAN . pemberat
+   ATAS    tiang diam . puli diam (pelek, 4 jari-jari, hub) . sabuk silang . puli Bulan . selongsong Bulan . lengan Bulan .
+           tiang Bulan . BULAN . tiang Bumi . penyangga miring . SUMBU BUMI . BUMI (laut, benua, es, khatulistiwa, Indonesia) .
+           fitting lampu . MATAHARI (bola lampu) */
+const OW = 81, OH = 44.5, CX = 40.5, CY = 40.5;                       // bounding box and orbit centre
+const BX0 = CX - 18, BX1 = CX + 18, BY0 = CY - 18, BY1 = CY + 18, BZ0 = 1.5, BZ1 = 15.5;
+const OUT = rrUV(BY0, BZ0, BY1, BZ1, 1.6);
+const R_ARM = 27, ZE = 36, R_E = 6.2, R_SUN = 8, R_M = 11, R_MOON = 2, Z_ARM = 18.5, Z_BELT = 21.5, Z_MARM = 24;
+const RB = 14.86, RS = 1.2;                                         // belt pulleys: RB / RS = 12,38 = 365,25 / 29,5
+const YEAR = 365.25, SYN = 29.5, TILT = 23.5, INC = 5.14, D_EQ = 78.8, D_NEW = 10, NODE = 20, LIFT = 3;
+const IND = [118, -2];                                              // Indonesia (bujur, lintang)
+const G_R = 11, P_R = 1.2, W_R = 5.5, G_N = 73, P_N = 8, W_N = 40;  // gear train
+const PC = [CX + (G_R + P_R)*Math.SQRT1_2, CY - (G_R + P_R)*Math.SQRT1_2];
+const YC = PC[1] - W_R - 1.5, ZC = 10.75;                           // crank shaft / worm axis (y, z)
+const BRASS = { l:'#f1cf72', m:'#cfa94b', d:'#8c6c25' }, WOODK = { l:'#e3b77c', m:'#c4935a', d:'#8a5f34' };
+const rad = a => a*Math.PI/180;
+const add3 = (a, b) => [a[0]+b[0], a[1]+b[1], a[2]+b[2]], mul3 = (a, k) => a.map(v => v*k);
+const oBox = (pts, m = 0) => [[0,1,2].map(i => Math.min(...pts.map(p => p[i])) - m), [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + m)];
+const MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'], CUM = [0,31,59,90,120,151,181,212,243,273,304,334];
+const PHASES = ['Bulan baru','Sabit awal','Kuartal pertama','Cembung awal','Purnama','Cembung akhir','Kuartal ketiga','Sabit akhir'];
+const SEASONS = ['Semi','Panas','Gugur','Dingin'];
+
+/* ---------- model ---------- */
+const thetaE = d => 180 + 360*(d - D_EQ)/YEAR;                  // Bumi mengelilingi Matahari (derajat)
+const lamS = d => (((360*(d - D_EQ)/YEAR) % 360) + 360) % 360;   // arah Bumi -> Matahari = bujur ekliptika Matahari
+const pfOf = d => ((((d - D_NEW)/SYN) % 1) + 1) % 1;
+const thetaM = d => thetaE(d) + 180 + 360*(d - D_NEW)/SYN;       // arah Bumi -> Bulan
+const betaOf = d => INC*Math.sin(rad(thetaM(d) - NODE));
+const phaseName = d => PHASES[Math.floor((pfOf(d) + 1/16)*8) % 8];
+const doyOf = d => ((d % YEAR) + YEAR) % YEAR;
+function dateStr(d){ const y = doyOf(d), dd = Math.floor(y); let mo = 11; while (mo > 0 && CUM[mo] > dd) mo--;
+  const mins = Math.floor((d - Math.floor(d))*1440), h = Math.floor(mins/60), mi = mins % 60;
+  return `${Math.min(dd - CUM[mo] + 1, 31)} ${MONTHS[mo]}, ${String(h).padStart(2,'0')}.${String(mi).padStart(2,'0')}`; }
+function geom(d){
+  const tE = rad(thetaE(d)), E = [CX + R_ARM*Math.cos(tE), CY + R_ARM*Math.sin(tE), ZE];
+  const tM = rad(thetaM(d)), lift = R_M*Math.sin(rad(LIFT*betaOf(d)));
+  const M = [E[0] + R_M*Math.cos(tM), E[1] + R_M*Math.sin(tM), ZE + lift];
+  return { tE, tM, E, M };
+}
+// Earth frame: axis tilted toward +y (fixed in space); e1, e2 span the equator, e1 x e2 = axis
+const AX = [0, Math.sin(rad(TILT)), Math.cos(rad(TILT))], EQ1 = [1,0,0], EQ2 = [0, Math.cos(rad(TILT)), -Math.sin(rad(TILT))];
+function spinOf(d, E){ const s = norm(sub([CX, CY, ZE], E)), psi = Math.atan2(dot(s, EQ2), dot(s, EQ1))*180/Math.PI;
+  return psi + (d - Math.floor(d) - .5)*360 - IND[0]; }           // Indonesia faces the Sun at 12.00
+const surf = (lon, lat, rho) => { const a = rad(lon + rho), b = rad(lat);
+  return add3(add3(mul3(EQ1, Math.cos(b)*Math.cos(a)), mul3(EQ2, Math.cos(b)*Math.sin(a))), mul3(AX, Math.sin(b))); };
+
+/* ---------- spheres: outline, sunlit part, clamped surface patches ---------- */
+const ringPts = (c, r, n = 44) => Array.from({length:n}, (_, i) => { const t = i/n*2*Math.PI; return [0,1,2].map(k => c[k] + r*(Math.cos(t)*CAM_R[k] + Math.sin(t)*CAM_U[k])); });
+// the part of the sphere where n.s > 0, as seen by the camera: limb half toward s, then the front half of the terminator
+function litPts(c, r, s, n = 22){
+  const V = CAM_V, sv = dot(s, V); let w = cross(s, V); const wl = Math.hypot(...w);
+  if (wl < 1e-4) return sv > 0 ? ringPts(c, r) : null;
+  w = mul3(w, 1/wl); const m3 = norm(sub(s, mul3(V, sv))); let t3 = cross(s, w); if (dot(t3, V) < 0) t3 = mul3(t3, -1);
+  const o = [];
+  for (let i = 0; i <= n; i++){ const t = Math.PI*i/n; o.push(add3(c, add3(mul3(w, r*Math.cos(t)), mul3(m3, r*Math.sin(t))))); }
+  for (let i = 1; i < n; i++){ const t = Math.PI - Math.PI*i/n; o.push(add3(c, add3(mul3(w, r*Math.cos(t)), mul3(t3, r*Math.sin(t))))); }
+  return o;
+}
+const toLimb = nv => { const v = dot(nv, CAM_V); return v >= 0 ? nv : norm(sub(nv, mul3(CAM_V, v))); };
+const LANDS = [
+  [[-165,65],[-140,70],[-95,72],[-60,60],[-55,48],[-80,30],[-97,18],[-105,22],[-125,40],[-130,55]],
+  [[-80,10],[-60,8],[-35,-6],[-40,-22],[-55,-35],[-70,-53],[-75,-40],[-80,-5]],
+  [[-10,36],[5,44],[0,50],[10,58],[25,70],[40,66],[40,45],[25,36]],
+  [[-17,15],[-10,35],[10,37],[33,31],[43,12],[51,11],[40,-15],[20,-35],[12,-20],[9,4],[-8,4]],
+  [[40,45],[40,66],[70,73],[110,77],[140,72],[170,66],[160,55],[140,45],[122,30],[108,20],[100,12],[95,20],[80,10],[72,20],[57,25],[45,30]],
+  [[114,-22],[122,-18],[131,-12],[142,-11],[146,-19],[153,-26],[150,-37],[140,-38],[129,-32],[115,-34]],
+  [[95,5],[98,4],[106,-6],[103,-5.5]], [[109,1],[117,7],[119,1],[116,-4],[110,-3]], [[106,-6],[114,-7],[114,-8.6],[106,-7.6]],
+  [[119,-1],[125,1.5],[121,-5]], [[131,-1],[141,-3],[141,-9],[137,-8]] ];
+const ICE = [Array.from({length:24}, (_, i) => [i*15, -70]), Array.from({length:24}, (_, i) => [i*15, 78])];
+const densify = poly => poly.flatMap((p, i) => { const q = poly[(i+1) % poly.length]; return [0, 1/3, 2/3].map(t => [p[0] + (q[0]-p[0])*t, p[1] + (q[1]-p[1])*t]); });
+const LANDS_D = LANDS.map(densify);
+
+function earthBall(st, E, d){
+  const s = norm(sub([CX, CY, ZE], E)), rho = spinOf(d, E), blur = Math.min(1, Math.max(0, (Math.abs(st.spd || 0) - 3)/6));
+  let o = fill(pd(ringPts(E, R_E)), '#4b94d6');
+  const patch = (poly, col) => { const ns = poly.map(([lo, la]) => surf(lo, la, rho));
+    if (!ns.some(nv => dot(nv, CAM_V) > 0)) return '';
+    return fill(pd(ns.map(nv => add3(E, mul3(toLimb(nv), R_E)))), col, `opacity="${f(1 - .65*blur)}"`); };
+  for (const p of LANDS_D) o += patch(p, '#7cc46e');
+  for (const p of ICE) o += patch(p, '#f4f7f2');
+  // equator, front half only
+  const eq = []; for (let i = 0; i <= 72; i++){ const nv = surf(i*5, 0, 0); if (dot(nv, CAM_V) > 0) eq.push(add3(E, mul3(nv, R_E))); else if (eq.length && eq[eq.length-1]) eq.push(null); }
+  let seg = [], eqd = ''; for (const p of [...eq, null]){ if (p) seg.push(p); else { if (seg.length > 1) eqd += pd(seg, false); seg = []; } }
+  if (eqd) o += `<path d="${eqd}" fill="none" stroke="#e8f3ff" stroke-width=".5" stroke-dasharray="1 1" opacity=".8"/>`;
+  // solar eclipse: the Moon's shadow on the day side
+  if (st.eclS){ const nv = s; if (dot(nv, CAM_V) > 0) o += fill(pd(ringPts(add3(E, mul3(nv, R_E)), .9, 14)), '#141a2c', 'opacity=".85"'); }
+  const night = litPts(E, R_E, mul3(s, -1));
+  if (night) o += fill(pd(night), '#101a33', 'opacity=".68"');
+  // Indonesia
+  const ni = surf(IND[0], IND[1], rho);
+  if (dot(ni, CAM_V) > .05){ const c = add3(E, mul3(ni, R_E)); o += fill(pd(ringPts(c, .55, 12)), '#e2483d') + ink(pd(ringPts(c, .55, 12)), .5); }
+  return o + ink(pd(ringPts(E, R_E)), 1.4);
+}
+function moonBall(st, M, E){
+  const s = norm(sub([CX, CY, ZE], M)), u = norm(sub(E, M)), b1 = norm(cross(u, [0,0,1])), b2 = cross(u, b1);
+  let o = fill(pd(ringPts(M, R_MOON, 28)), st.eclL ? '#b5573a' : '#dedbd0');
+  for (const [a, b, r] of [[.45,.2,.28],[-.3,.4,.22],[.1,-.45,.32],[-.5,-.2,.18]]){ const nv = norm(add3(u, add3(mul3(b1, a), mul3(b2, b))));
+    if (dot(nv, CAM_V) > .15){ const c = add3(M, mul3(nv, R_MOON)); o += fill(pd(ringPts(c, r, 10)), st.eclL ? '#8c3d26' : '#bdb9ab'); } }
+  const night = litPts(M, R_MOON, mul3(s, -1));
+  if (night) o += fill(pd(night), '#1d1f2c', `opacity="${st.eclL ? .35 : .72}"`);
+  return o + ink(pd(ringPts(M, R_MOON, 28)), 1.1);
+}
+
+/* ---------- gears ---------- */
+function gear(cx, cy, z0, z1, R, n, ang, mat, holes = 4){
+  const p = 2*Math.PI/n, a0 = rad(ang), dp = Math.min(.45, R*.3);
+  const ring = z => { const o = []; for (let i = 0; i < n; i++){ const a = a0 + i*p;
+    for (const [fa, rr] of [[0, R - dp], [.2, R + dp], [.4, R + dp], [.6, R - dp]]) o.push([cx + rr*Math.cos(a + fa*p), cy + rr*Math.sin(a + fa*p), z]); } return o; };
+  const A = ring(z0), B = ring(z1);
+  let s = loft(A, B, nr => toneI(nr, mat)) + fill(pd(B), mat.l) + ink(pd(B), .55);
+  if (holes && R > 3) for (let i = 0; i < holes; i++){ const a = a0 + i*2*Math.PI/holes; s += shape(on(PZ(z1 + .02), ellUV(cx + R*.55*Math.cos(a), cy + R*.55*Math.sin(a), R*.17, R*.17, 14)), mix(mat.d, '#000000', .3), .5); }
+  s += shape(on(PZ(z1 + .02), ellUV(cx, cy, Math.max(.5, R*.16), Math.max(.5, R*.16), 14)), mat.m, .5);
+  return s + hullInk([...A, ...B], 1);
+}
+function worm(x0, x1, y, z, r, ang){
+  let s = cylX(x0, x1, y, z, r, METAL, toneI, .9, 18), lines = '';
+  const pitch = 1.1, ph = ((ang/360) % 1 + 1) % 1;
+  for (let x = x0 + ph*pitch; x < x1 - .2; x += pitch){ const pts = [];
+    for (let i = 0; i <= 16; i++){ const t = 2*Math.PI*i/16, n3 = [0, Math.cos(t), Math.sin(t)]; if (dot(n3, CAM_V) > 0) pts.push([x + pitch*i/16, y + r*Math.cos(t), z + r*Math.sin(t)]); }
+    if (pts.length > 1) lines += pd(pts.filter(p => p[0] < x1), false); }
+  return s + `<path d="${lines}" fill="none" stroke="${INK}" stroke-width=".5" opacity=".75"/>`;
+}
+
+/* ---------- inside the base ---------- */
+function baseMech(st, g){
+  const parts = [], put = (b, svg) => parts.push({ box: b, svg });
+  const gA = thetaE(st.d), pA = -gA*G_N/P_N, cA = st.d*360;
+  put([[CX-3, CY-3, BZ0], [CX+3, CY+3, BZ0 + 2]], box(CX-3, CY-3, BZ0 + 1, CX+3, CY+3, BZ0 + 2, METAL, toneI, .7));
+  put([[CX-1.5, CY-1.5, BZ0 + 2], [CX+1.5, CY+1.5, 4.5]], cyl(CX, CY, BZ0 + 2, 4.5, 1.5, METAL, toneI, .8));
+  put([[CX-G_R-.5, CY-G_R-.5, 4.5], [CX+G_R+.5, CY+G_R+.5, 6]], gear(CX, CY, 4.5, 6, G_R, G_N, gA, BRASS));
+  put([[CX-1.5, CY-1.5, 6], [CX+1.5, CY+1.5, BZ1 - 1]], cyl(CX, CY, 6, BZ1 - 1, 1.5, METAL, toneI, .8));
+  // counter shaft: pinion low, worm wheel high
+  put([[PC[0]-.5, PC[1]-.5, BZ0 + 1], [PC[0]+.5, PC[1]+.5, 4.5]], cyl(PC[0], PC[1], BZ0 + 1, 4.5, .45, METAL, toneI, .6));
+  put([[PC[0]-P_R-.5, PC[1]-P_R-.5, 4.5], [PC[0]+P_R+.5, PC[1]+P_R+.5, 6]], gear(PC[0], PC[1], 4.5, 6, P_R, P_N, pA, METAL, 0));
+  put([[PC[0]-.5, PC[1]-.5, 6], [PC[0]+.5, PC[1]+.5, 10]], cyl(PC[0], PC[1], 6, 10, .45, METAL, toneI, .6));
+  put([[PC[0]-W_R-.5, PC[1]-W_R-.5, 10], [PC[0]+W_R+.5, PC[1]+W_R+.5, 11.5]], gear(PC[0], PC[1], 10, 11.5, W_R, W_N, pA, BRASS, 3));
+  put([[PC[0]-.5, PC[1]-.5, 11.5], [PC[0]+.5, PC[1]+.5, BZ1 - 1]], cyl(PC[0], PC[1], 11.5, BZ1 - 1, .45, METAL, toneI, .6));
+  // crank shaft with the worm, on two bearing blocks
+  const wx0 = PC[0] - 3.6, wx1 = PC[0] + 3.6;
+  for (const [x0, x1] of [[CX + 1.5, CX + 3], [BX1 - 6, BX1 - 4.5]]) put([[x0, YC-1, BZ0 + 1], [x1, YC+1, ZC + 1]], box(x0, YC-1, BZ0 + 1, x1, YC+1, ZC + 1, WOODK, toneI, .7));
+  put([[CX + 1, YC-.6, ZC-.6], [wx0, YC+.6, ZC+.6]], cylX(CX + 1, wx0, YC, ZC, .6, METAL, toneI, .6));
+  put([[wx0, YC-1.5, ZC-1.5], [wx1, YC+1.5, ZC+1.5]], worm(wx0, wx1, YC, ZC, 1.5, cA));
+  put([[wx1, YC-.6, ZC-.6], [BX1, YC+.6, ZC+.6]], cylX(wx1, BX1, YC, ZC, .6, METAL, toneI, .6));
+  return byDepth(parts);
+}
+
+/* ---------- the wooden base with its crank ---------- */
+function baseBody(){
+  const FRONT = facing([1,0,0]), BACK = facing([-1,0,0]);
+  let b = '';
+  if (FRONT) b += fill(pd(on(PX(BX1), OUT)), tone([1,0,0], WOOD));
+  if (BACK) b += fill(pd(on(PX(BX0), OUT)), tone([-1,0,0], WOOD));
+  b += extrude(OUT, BX0, BX1, WOOD);
+  // top plate inlay ring and grain
+  b += shape(on(PZ(BZ1 + .02), rrUV(BX0 + 2, BY0 + 2, BX1 - 2, BY1 - 2, 2)), mix(WOOD.l, '#ffffff', .12), .7);
+  if (FRONT){
+    b += shape(on(PX(BX1 + .1), rrUV(CY + 1, 5, CY + 15, 11, 1.2)), BRASS.l, .8);
+    b += tx(BX1 + .2, CY + 8, 7.1, 'TATA SURYA', 2.1, INK, 800);
+    b += shape(on(PX(BX1 + .1), ellUV(YC, ZC, 1.5, 1.5, 16)), BRASS.m, .7);
+    b += ink(pd(on(PX(BX1), OUT)), 2);
+  }
+  if (BACK) b += ink(pd(on(PX(BX0), OUT)), 2);
+  return b + hullInk([...on(PX(BX0), OUT), ...on(PX(BX1), OUT)], 2.8);
+}
+function crankParts(st){
+  const a = rad(st.d*360), fast = Math.abs(st.spd || 0) > 1.5, X = BX1, ty = YC + 5*Math.cos(a), tz = ZC + 5*Math.sin(a);
+  const parts = [{ box: [[X, YC-1.5, ZC-1.5], [X + 1.6, YC+1.5, ZC+1.5]], svg: cylX(X, X + 1.6, YC, ZC, 1.5, BRASS, toneI, .9) }];
+  if (fast) parts.push({ box: [[X + 1.6, YC-5.6, ZC-5.6], [X + 2.4, YC+5.6, ZC+5.6]], svg: `<g opacity=".45">${shape(on(PX(X + 2), ellUV(YC, ZC, 5.6, 5.6, 28)), BRASS.m, .7)}</g>` + cylX(X + 2.2, X + 5.6, YC, ZC + 5, .2, WOODK, toneI, .1) });
+  else {
+    parts.push({ box: oBox([[X + 1.6, YC, ZC], [X + 2.4, ty, tz]], .7), svg: rod([X + 2, YC, ZC], [X + 2, ty, tz], .6, BRASS, toneI, .9) });
+    parts.push({ box: oBox([[X + 2.4, ty, tz], [X + 5.8, ty, tz]], 1), svg: rod([X + 2.4, ty, tz], [X + 5.8, ty, tz], .9, WOODK, toneI, 1, .75) });
+  }
+  return { box: [[X, YC-6, ZC-6], [X + 6, YC+6, ZC+6]], at: [X + 2, YC, ZC], svg: act('crank', byDepth(parts)), tip: [X + 5.8, ty, tz] };
+}
+
+/* ---------- the turning top ---------- */
+function upperParts(st, m, g){
+  const parts = [], put = (b, svg, at) => parts.push({ box: b, svg, at });
+  const { E, M } = g, Eb = [E[0], E[1]], dir = [Math.cos(g.tE), Math.sin(g.tE)];
+  // rotating hollow shaft above the lid, hub, arm and counterweight
+  put([[CX-1.5, CY-1.5, BZ1], [CX+1.5, CY+1.5, 17.5]], cyl(CX, CY, BZ1, 17.5, 1.5, METAL, toneI, .8));
+  put([[CX-2.6, CY-2.6, 17.5], [CX+2.6, CY+2.6, 19.5]], cyl(CX, CY, 17.5, 19.5, 2.6, m, toneI, 1));
+  const segs = 6;
+  for (let i = 0; i < segs; i++){ const r0 = 2.6 + (R_ARM - 2.6)*i/segs, r1 = 2.6 + (R_ARM - 2.6)*(i+1)/segs;
+    const a = [CX + r0*dir[0], CY + r0*dir[1], Z_ARM], b = [CX + r1*dir[0], CY + r1*dir[1], Z_ARM];
+    put(oBox([a, b], .9), rod(a, b, .9, m, toneI, .9)); }
+  { const a = [CX - 2.6*dir[0], CY - 2.6*dir[1], Z_ARM], b = [CX - 10*dir[0], CY - 10*dir[1], Z_ARM], c = [CX - 13.5*dir[0], CY - 13.5*dir[1], Z_ARM];
+    put(oBox([a, b], .9), rod(a, b, .9, m, toneI, .9));
+    put(oBox([b, c], 2.3), rod(b, c, 2.2, DARK, toneI, 1)); }
+  put([[E[0]-1.6, E[1]-1.6, 17.5], [E[0]+1.6, E[1]+1.6, 19.5]], cyl(E[0], E[1], 17.5, 19.5, 1.6, m, toneI, .9));
+  // fixed column + fixed pulley (centre), belt, Moon pulley (arm end): one thin layer
+  put([[CX-.8, CY-.8, 19.5], [CX+.8, CY+.8, 21.1]], cyl(CX, CY, 19.5, 21.1, .8, METAL, toneI, .7));
+  put([[E[0]-.5, E[1]-.5, 19.5], [E[0]+.5, E[1]+.5, 21.1]], cyl(E[0], E[1], 19.5, 21.1, .5, METAL, toneI, .6));
+  put(oBox([[CX-RB, CY-RB, 21.1], [CX+RB, CY+RB, 21.9], [E[0]-RS, E[1]-RS, 21.9], [E[0]+RS, E[1]+RS, 21.1]]), beltLayer(st, g));
+  // Moon sleeve on the Earth post, Earth post top
+  put([[E[0]-.85, E[1]-.85, 21.9], [E[0]+.85, E[1]+.85, 24.6]], cyl(E[0], E[1], 21.9, 24.6, .85, BRASS, toneI, .7));
+  put([[E[0]-.5, E[1]-.5, 24.6], [E[0]+.5, E[1]+.5, 26.5]], cyl(E[0], E[1], 24.6, 26.5, .5, METAL, toneI, .6));
+  // Moon arm + post + Moon (ordered bottom-up; sorted against the Earth by the Moon's own position)
+  { const mdir = norm([M[0] - E[0], M[1] - E[1], 0]), a = [E[0] + .85*mdir[0], E[1] + .85*mdir[1], Z_MARM], b = [M[0], M[1], Z_MARM];
+    const svg = rod(a, b, .4, BRASS, toneI, .7) + rod([M[0], M[1], Z_MARM], [M[0], M[1], M[2] - R_MOON*.8], .3, METAL, toneI, .6) + moonBall(st, M, E);
+    put(oBox([a, b, [M[0], M[1], M[2] + R_MOON]], R_MOON), svg, [M[0], M[1], ZE]); }
+  // Earth: bracket, tilted axis (stubs either side, ordered by which way they point), ball
+  { const B = add3(E, mul3(AX, -(R_E + 2.4))), T = add3(E, mul3(AX, R_E + 2.4)), lo = add3(E, mul3(AX, -R_E*.9)), hi = add3(E, mul3(AX, R_E*.9));
+    const brk = rod([E[0], E[1], 26.5], B, .45, METAL, toneI, .6);
+    const sLo = rod(B, lo, .3, METAL, toneI, .6), sHi = rod(hi, T, .3, METAL, toneI, .6);
+    const loFront = dot(mul3(AX, -1), CAM_V) > 0;
+    const ext = `<path d="${pd([T, add3(T, mul3(AX, 5))], false)}" fill="none" stroke="${INK}" stroke-width=".6" stroke-dasharray="1.2 1" opacity=".55"/>`;
+    const svg = brk + (loFront ? '' : sLo) + (loFront ? sHi : '') + earthBall(st, E, st.d) + (loFront ? sLo : sHi) + ext;
+    put([[E[0]-R_E-2.8, E[1]-R_E-2.8, 26.5], [E[0]+R_E+2.8, E[1]+R_E+2.8, ZE + R_E + 7]], svg, E); }
+  // fixed column up to the lamp socket, then the Sun bulb
+  { let sv = cyl(CX, CY, 21.9, 25.5, .8, METAL, toneI, .7) + cyl(CX, CY, 25.5, 28.6, 2.2, DARK, toneI, 1);
+    const c = [CX, CY, ZE];
+    sv += fill(pd(ringPts(c, R_SUN*1.55)), '#ffe9a0', 'opacity=".28"') + fill(pd(ringPts(c, R_SUN*1.25)), '#ffdd6a', 'opacity=".38"');
+    sv += fill(pd(ringPts(c, R_SUN)), '#ffd23f') + fill(pd(ringPts(add3(c, add3(mul3(CAM_U, 1.6), mul3(CAM_R, -1.2))), R_SUN*.6)), '#ffe680')
+      + fill(pd(ringPts(add3(c, add3(mul3(CAM_U, 3.2), mul3(CAM_R, -2.4))), R_SUN*.2)), '#fff8d8') + ink(pd(ringPts(c, R_SUN)), 1.6);
+    put([[CX-R_SUN, CY-R_SUN, 21.9], [CX+R_SUN, CY+R_SUN, ZE + R_SUN]], sv, c); }
+  // two layers split at the belt's top (z = 21.9): everything below is drawn first, so the sort never mixes them
+  const top = p => p.box[0][2] >= 21.9 - 1e-6;
+  return byDepth(parts.filter(p => !top(p))) + byDepth(parts.filter(top));
+}
+function beltLayer(st, g){
+  const E = g.E, zt = 21.9, zb = 21.1;
+  // fixed pulley: rim (inner far wall, outer wall), 4 spokes, hub, top of the rim
+  const rIn = RB - 1.1, ring = (r, z) => on(PZ(z), ellUV(CX, CY, r, r, 48));
+  let s = loft(ring(rIn, zb), ring(rIn, zt), n => toneI(n, BRASS), true) + loft(ring(RB, zb), ring(RB, zt), n => toneI(n, BRASS));
+  const sp = []; for (let i = 0; i < 4; i++){ const a = rad(45 + i*90); sp.push({ box: oBox([[CX + 1.2*Math.cos(a), CY + 1.2*Math.sin(a), 21.5], [CX + rIn*Math.cos(a), CY + rIn*Math.sin(a), 21.5]], .35),
+    svg: rod([CX + 1.2*Math.cos(a), CY + 1.2*Math.sin(a), 21.5], [CX + (rIn + .3)*Math.cos(a), CY + (rIn + .3)*Math.sin(a), 21.5], .35, BRASS, toneI, .6) }); }
+  s += byDepth(sp) + cyl(CX, CY, zb, zt, 1.5, BRASS, toneI, .7);
+  const top = ring(RB, zt), topI = ring(rIn, zt);
+  s += `<path d="${pd(top)}${pd(topI.slice().reverse())}" fill="${BRASS.l}" fill-rule="evenodd"/>` + ink(pd(top), .8) + ink(pd(topI), .6);
+  // Moon pulley (turns with the Moon arm), mark shows it turning
+  s += cyl(E[0], E[1], zb, zt, RS, BRASS, toneI, .7) + line([[E[0], E[1], zt + .02], [E[0] + RS*Math.cos(g.tM), E[1] + RS*Math.sin(g.tM), zt + .02]], .5);
+  // crossed belt: arcs round both pulleys, two straight runs crossing
+  const base = Math.atan2(E[1] - CY, E[0] - CX), Dd = Math.hypot(E[0] - CX, E[1] - CY), ph = Math.acos((RB + RS)/Dd), z = Z_BELT;
+  const p1 = a => [CX + (RB + .15)*Math.cos(a), CY + (RB + .15)*Math.sin(a), z], p2 = a => [E[0] + (RS + .15)*Math.cos(a), E[1] + (RS + .15)*Math.sin(a), z];
+  const pts = []; for (let i = 0; i <= 40; i++) pts.push(p1(base + ph + (2*Math.PI - 2*ph)*i/40));
+  for (let i = 0; i <= 12; i++) pts.push(p2(base + Math.PI - ph - (2*Math.PI - 2*ph)*i/12));
+  const dd = pd(pts);
+  s += `<path d="${dd}" fill="none" stroke="${INK}" stroke-width="1.5" stroke-linejoin="round"/><path d="${dd}" fill="none" stroke="#7a4a2c" stroke-width=".8" stroke-linejoin="round"/>`;
+  return s;
+}
+
+/* ---------- scene ---------- */
+function scene(st, m){
+  const g = geom(st.d), k = ease(st.xr || 0);
+  const pf = pfOf(st.d), nearNew = Math.min(pf, 1 - pf)*SYN < .6, nearFull = Math.abs(pf - .5)*SYN < .6, b = Math.abs(betaOf(st.d));
+  st.eclS = nearNew && b < 1.5; st.eclL = nearFull && b < 1.0;
+  let s = castShadow([...on(PX(BX0), OUT), ...on(PX(BX1), OUT), [BX1 + 6, YC, ZC]]);
+  // feet
+  for (const [x, y] of [[BX0 + 3, BY0 + 3], [BX1 - 3, BY0 + 3], [BX0 + 3, BY1 - 3], [BX1 - 3, BY1 - 3]]) s += cyl(x, y, 0, BZ0, 1.8, DARK, toneI, .8, 14);
+  let base = baseBody();
+  if (k > 0) base = xrGhost(base, '', k, OUT, BX0, BX1, WOOD) + `<g opacity="${f(k)}">${baseMech(st, g)}</g>`;
+  const cr = crankParts(st);
+  s += byDepth([{ box: [[BX0, BY0, 0], [BX1, BY1, BZ1]], svg: base }, cr]);
+  s += upperParts(st, m, g);
+  // labels
+  const moving = !!st.moving, E = g.E, M = g.M, dir = [Math.cos(g.tE), Math.sin(g.tE)];
+  const items = [
+    { at: [CX, CY, ZE + R_SUN], text: 'MATAHARI', on: false },
+    { at: E, text: 'BUMI', on: moving },
+    { at: add3(E, mul3(AX, R_E + 2.4)), text: 'SUMBU BUMI 23,5°', on: false },
+    { at: M, text: 'BULAN', on: moving },
+    { at: [CX + 18*dir[0], CY + 18*dir[1], Z_ARM + .9], text: 'LENGAN', on: moving },
+    { at: [CX + (RB + 6)*dir[0], CY + (RB + 6)*dir[1], Z_BELT], text: 'SABUK', on: moving },
+    { at: cr.tip, text: 'ENGKOL', on: moving } ];
+  const ni = surf(IND[0], IND[1], spinOf(st.d, E));
+  if (dot(ni, CAM_V) > .05) items.push({ at: add3(E, mul3(ni, R_E)), text: 'INDONESIA', on: false });
+  if (k > .6) items.push({ at: [CX + G_R*.7, CY + G_R*.7, 6], text: 'RODA GIGI', on: moving }, { at: [CX, CY, 16.5], text: 'POROS', on: moving });
+  return s + xrCallouts(items, [0, OW, 0, OW, 0, OH]);
+}
+
+/* ---------- behaviour ---------- */
+let ui, toldLift = false;
+function say(list){ let t = 0; for (const [txt, ms] of list){ setTimeout(() => ui.flash(txt, ms), t); t += ms + 150; } }
+function checkEcl(st, a, b){
+  if (b <= a) return;
+  for (const off of [0, .5]){
+    let n = Math.ceil((a - D_NEW)/SYN - off + 1e-9);
+    for (let de = D_NEW + SYN*(n + off); de <= b + 1e-6; de += SYN){ if (de <= a) continue;
+      const bb = Math.abs(betaOf(de));
+      if (off === 0 && bb < 1.5) ui.flash('Gerhana Matahari: Bulan baru tepat di garis Matahari-Bumi', 2600);
+      if (off === .5 && bb < 1.0) ui.flash('Gerhana Bulan: Bulan purnama masuk ke bayangan Bumi', 2600); } }
+}
+function runTo(st, target, dur, done){
+  const id = ++st.anim, d0 = st.d; let t = 0; st.moving = true; st.goal = target;
+  ui.animate(dt => { if (id !== st.anim) return false; t += dt; const kk = Math.min(1, t/dur), e = ease(kk), prev = st.d;
+    st.d = d0 + (target - d0)*e; st.spd = (st.d - prev)/Math.max(dt, 1e-3); checkEcl(st, prev, st.d);
+    if (kk >= 1){ st.moving = false; st.spd = 0; if (done) done(); }
+    return kk < 1; });
+}
+const from = st => st.moving ? st.goal : st.d;
+function addDays(st, n, dur, done){ runTo(st, from(st) + n, dur, done); }
+function jumpTo(st, target, msg){
+  const dist = target - st.d;
+  runTo(st, target, Math.max(1.2, Math.min(6, 1 + dist/60)), msg);
+}
+function nextPhase(st, p){ const d0 = from(st); let dd = ((p - pfOf(d0)) % 1 + 1) % 1*SYN; if (dd < .05) dd += SYN; return d0 + dd; }
+function nextDoy(st, t){ const d0 = from(st); let dd = ((t - doyOf(d0)) % YEAR + YEAR) % YEAR; if (dd < .05) dd += YEAR; return d0 + dd; }
+const liftNote = () => { if (toldLift) return []; toldLift = true; return [['Ilustrasi: naik-turun Bulan (orbit miring 5°) diperbesar agar terlihat', 2600]]; };
+function phaseMsg(st, p){
+  const d = st.d, bb = Math.abs(betaOf(d));
+  if (p === 0) return bb < 1.5 ? [['Gerhana Matahari: Bulan baru tepat di garis Matahari-Bumi', 2800]]
+    : [['Bulan baru: sisi Bulan yang terang membelakangi Bumi', 2400], ['Tidak ada gerhana: orbit Bulan miring 5°, Bulan lewat di atas atau bawah', 2800]];
+  if (p === .5) return bb < 1.0 ? [['Gerhana Bulan: Bulan purnama masuk ke bayangan Bumi', 2800]]
+    : [['Purnama: seluruh sisi Bulan yang terang menghadap Bumi', 2400], ['Tidak ada gerhana: orbit Bulan miring 5°, Bulan lewat di atas atau bawah', 2800]];
+  return [['Kuartal: Matahari-Bumi-Bulan membentuk sudut siku, Bulan tampak separuh', 2800]];
+}
+
+ui = mountFigure({
+  fig:'7', title:'Orrery (tellurion)', turn:'full',
+  size:[OW, OW, OH], palette:'tomato',
+  state:{ d:.75, anim:0, moving:false, goal:.75, spd:0 },
+  scene,
+  stats: st => [
+    { label:'Hari ke-', value: Math.floor(st.d) + 1 },
+    { label:'Tanggal', value: dateStr(st.d), small:true },
+    { label:'Fase Bulan', value: phaseName(st.d), small:true },
+    { label:'Musim di utara', value: SEASONS[Math.floor(lamS(st.d)/90) % 4], small:true } ],
+  buttons:[
+    { label:'Putar 1 hari', onClick:(st) => { addDays(st, 1, 1.8); ui.flash('Rotasi: sisi Bumi yang menghadap Matahari siang, sisi lainnya malam', 2600); } },
+    { label:'Putar 1 bulan', onClick:(st) => addDays(st, SYN, 3.5, () => say([['Fase Bulan berubah karena posisi Bulan terhadap Matahari dan Bumi', 2800], ...liftNote()])) },
+    { label:'Putar 1 tahun', onClick:(st) => addDays(st, YEAR, 9, () => say([['Revolusi dan sumbu Bumi yang miring 23,5° menyebabkan musim', 2800],
+        ['Indonesia dekat khatulistiwa, jadi hanya ada musim hujan dan kemarau', 3000]])) },
+    { label:'Lompat ke', choices: st => [
+      ...[['Bulan baru', 0], ['Kuartal pertama', .25], ['Purnama', .5], ['Kuartal ketiga', .75]].map(([lb, p]) => ({ label: lb,
+        onClick:(st) => jumpTo(st, nextPhase(st, p), () => say([...phaseMsg(st, p), ...liftNote()])) })),
+      { label:'21 Juni', onClick:(st) => jumpTo(st, nextDoy(st, 171.5), () => say([['21 Juni: kutub utara condong ke Matahari, belahan utara musim panas', 2800],
+          ['Indonesia dekat khatulistiwa, jadi hanya ada musim hujan dan kemarau', 3000]])) },
+      { label:'22 Desember', onClick:(st) => jumpTo(st, nextDoy(st, 355.5), () => say([['22 Desember: kutub utara menjauhi Matahari, belahan utara musim dingin', 2800],
+          ['Indonesia dekat khatulistiwa, jadi hanya ada musim hujan dan kemarau', 3000]])) } ] },
+  ],
+  acts:{ crank:(st) => { addDays(st, 1, 1.8); ui.flash('Rotasi: sisi Bumi yang menghadap Matahari siang, sisi lainnya malam', 2600); } },
+  params:(st, q) => { if (q.has('d')) st.d = st.goal = +q.get('d'); },
+});
+xrMount(() => ui, () => '');
+if (!new URLSearchParams(location.search).has('press')) setTimeout(() => ui.flash('Ilustrasi: ukuran dan jarak tidak sebanding', 3200), 250);
+else ui.flash('Ilustrasi: ukuran dan jarak tidak sebanding', 1200);
+</script></body></html>

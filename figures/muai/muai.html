@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alat muai bola dan cincin</title>
+<style>@media (max-width:560px){.stats{flex-wrap:wrap;row-gap:6px;column-gap:16px!important}}</style></head><body>
+<script src="core.js"></script>
+<script>
+/* ---------- Alat muai bola dan cincin ('s Gravesande) — Bab 3 Suhu, Kalor dan Pemuaian ----------
+   Langkah nyata percobaan:
+   1. Bola kuningan dingin (30 °C) diturunkan ke cincin kuningan: Ø bola 25,00 mm < Ø lubang 25,05 mm -> lolos, lalu diangkat.
+   2. Bola diayun ke atas pembakar spiritus dan dipanaskan sampai ±300 °C. Kalor dari api masuk ke bola (konduksi lewat
+      batang logam); pegangan kayu adalah isolator, jadi tetap dingin.
+   3. Bola panas diturunkan lagi: Ø bola 25,13 mm > Ø lubang 25,05 mm -> bola tersangkut di atas cincin.
+   4. Pembakar digeser ke bawah tepi cincin; cincin ikut panas dan memuai. Begitu Ø lubang > Ø bola, bola lolos.
+   5. Keduanya didinginkan kembali ke 30 °C dan menyusut ke ukuran semula.
+   Model: D = D0 (1 + α ΔT), α kuningan = 19 × 10^-6 /°C. Bola D0 = 25,00 mm, cincin D0 = 25,05 mm (pada 30 °C).
+     Bola 300 °C: 25,00 × (1 + 19e-6 × 270) = 25,128 mm > 25,05 -> tersangkut.
+     Cincin melewatkan bola 300 °C bila 25,05 (1 + α ΔT) > 25,128 -> ΔT > 164 °C (cincin > ±194 °C).
+   Gambar: 1 unit = 1 mm. Selisih diameter digambar 40× (MU_X) agar terlihat; angka di stats tetap nyata.
+   Bagian (masing-masing dipegang bagian lain):
+   PAPAN    papan meja lab
+   STATIF   kaki pelat . batang tegak di tengah kaki
+   CINCIN   klem cincin (boss di batang + sekrup) . gagang cincin (batang kuningan dijepit klem) . cincin kuningan
+   BOLA     klem bola (boss di batang + sekrup, bisa diputar dan digeser) . lengan . penjepit . pegangan kayu (dijepit) .
+            gagang batang logam (masuk ke pegangan) . bola kuningan (di ujung gagang)
+   PEMBAKAR botol kaca . spiritus di dalamnya . leher logam . tabung sumbu . sumbu . nyala api */
+const D2R = Math.PI/180;
+const MU_A = 19e-6, MU_DB0 = 25.00, MU_DR0 = 25.05, MU_T0 = 30, MU_X = 40;
+const dBall = st => MU_DB0*(1 + MU_A*(st.Tb - MU_T0));
+const dRing = st => MU_DR0*(1 + MU_A*(st.Tr - MU_T0));
+const rVis = d => (25 + MU_X*(d - 25))/2;                         // jari-jari gambar (selisih diperbesar 40×)
+const mm = d => d.toFixed(2).replace('.', ',');
+
+const BW = 215, BD = 240, BH = 14, BTOP = boardTop(0, 0, BW, BD, BH, 8);
+const RODX = 70, RODY = 70, ROD_R = 6, ROD_TOP = 360, BASE = [20, 20, 120, 120], BASE_H = 12, BOSS_R = 11;
+const ARM_L = 110;                                                 // batang statif -> sumbu cincin / sumbu bola
+const RING_C = [RODX, RODY + ARM_L], RZ0 = 128, RZ1 = 135, RING_W = 5, RBOSS = [122, 141];
+const REST_Z = 178, BELOW_Z = 88, HEAT_Z = 128, ROD_L = 108, HND_L = 60, TH_HEAT = 60;
+const BP0 = [RODX + ARM_L*Math.sin(TH_HEAT*D2R), RODY + ARM_L*Math.cos(TH_HEAT*D2R)], BP1 = [RING_C[0] + 16.5, RING_C[1]];
+const BUR = [[0, 24], [2, 27], [30, 27], [38, 24], [46, 13], [52, 11]], FL_Z = BH + 65, FL_H = 60;
+const brassAt = T => matOf(mix('#e2b84f', '#b4583a', Math.min(1, Math.max(0, (T - 30)/270))*.38));
+const STEEL = METAL, HND = WOOD;
+
+/* ---------- helpers ---------- */
+const arcPts = (cx, cy, z, r, a0, a1, n = 18) => Array.from({length: n + 1}, (_, i) => { const a = (a0 + (a1 - a0)*i/n)*D2R; return [cx + r*Math.cos(a), cy + r*Math.sin(a), z]; });
+const boxOf = (pts, e = .05) => [[0,1,2].map(i => Math.min(...pts.map(p => p[i])) - e), [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + e)];
+let muClip = 0;
+function sphere(c, R, M){
+  const rings = [];
+  for (let i = 0; i <= 10; i++){ const a = (-80 + 160*i/10)*D2R, r = R*Math.cos(a); rings.push(on(PZ(c[2] + R*Math.sin(a)), ellUV(c[0], c[1], r, r, 24))); }
+  let s = '';
+  for (let i = 0; i < 10; i++) s += loft(rings[i], rings[i+1], n => tone(n, M));
+  s += fill(pd(rings[10]), tone([0,0,1], M));
+  const [X, Y] = P(...c), rs = R*Math.sqrt(1.5);
+  s += `<ellipse cx="${f(X - rs*.38)}" cy="${f(Y - rs*.42)}" rx="${f(rs*.2)}" ry="${f(rs*.13)}" fill="#ffffff" opacity=".55" transform="rotate(-35 ${f(X - rs*.38)} ${f(Y - rs*.42)})"/>`;
+  return s + hullInk([...rings[0], ...rings[10], ...on(PZ(c[2]), ellUV(c[0], c[1], R, R, 32))], 1.6);
+}
+// only the part of the ball above the plane z = zc (redrawn over the near half of the ring)
+function sphereAbove(c, R, M, zc){
+  if (c[2] - R >= zc) return sphere(c, R, M);
+  if (c[2] + R <= zc) return '';
+  const rc = Math.sqrt(Math.max(0, R*R - (zc - c[2])**2)), arc = arcPts(c[0], c[1], zc, rc, YAW - 90, YAW + 90, 20).map(p => P(...p));
+  if (arc[0][0] > arc[arc.length-1][0]) arc.reverse();
+  const a = arc[0], b = arc[arc.length-1], big = 400;
+  const poly = [[a[0] - big, a[1]], ...arc, [b[0] + big, b[1]], [b[0] + big, b[1] - big], [a[0] - big, a[1] - big]];
+  const id = 'mc' + (++muClip);
+  return `<clipPath id="${id}"><path d="${sp(poly)}"/></clipPath><g clip-path="url(#${id})">${sphere(c, R, M)}</g>`;
+}
+// ring: far part (inner wall seen from inside, far half of the top) and near part (outer wall, near half of the top)
+function ringDraw(M, ri, ro){
+  const [cx, cy] = RING_C, N = 36;
+  const inB = on(PZ(RZ0), ellUV(cx, cy, ri, ri, N)), inT = on(PZ(RZ1), ellUV(cx, cy, ri, ri, N));
+  const oB = on(PZ(RZ0), ellUV(cx, cy, ro, ro, N)), oT = on(PZ(RZ1), ellUV(cx, cy, ro, ro, N));
+  let far = loft(inB, inT, n => tone(n, M), true), near = loft(oB, oT, n => tone(n, M));
+  const top = tone([0,0,1], M);
+  for (let i = 0; i < N; i++){ const j = (i + 1) % N, mid = (i + .5)/N*360;
+    const q = face(pd([inT[i], oT[i], oT[j], inT[j]]), top);
+    if (Math.cos((mid - YAW)*D2R) < 0) far += q; else near += q; }
+  const A = (r, z, a0, a1) => pd(arcPts(cx, cy, z, r, a0, a1, 20), false);
+  far += ink(A(ri, RZ1, YAW + 90, YAW + 270), .9) + ink(A(ri, RZ0, YAW + 90, YAW + 270), .7) + ink(A(ro, RZ1, YAW + 90, YAW + 270), 1.4);
+  near += ink(A(ri, RZ1, YAW - 90, YAW + 90), .9) + ink(A(ro, RZ1, YAW - 90, YAW + 90), 1.2) + ink(A(ro, RZ0, YAW - 90, YAW + 90), 1.5);
+  for (const a of [YAW - 90, YAW + 90]){ const p = [cx + ro*Math.cos(a*D2R), cy + ro*Math.sin(a*D2R)]; near += line([[...p, RZ0], [...p, RZ1]], 1.5); }
+  return { far, near };
+}
+// a boss head on the stand rod with its thumb screw (dir = where the screw points)
+function bossItem(z0, z1, dir, M){
+  const zm = (z0 + z1)/2, a = [RODX + dir[0]*BOSS_R, RODY + dir[1]*BOSS_R, zm], b = [RODX + dir[0]*(BOSS_R + 7), RODY + dir[1]*(BOSS_R + 7), zm], c = [b[0] + dir[0]*3.5, b[1] + dir[1]*3.5, zm];
+  const scr = rod(a, b, 1.8, STEEL, tone, .9, 1.8, 10) + rod(b, c, 4.2, DARK, tone, 1, 4.2, 14);
+  const body = cyl(RODX, RODY, z0, z1, BOSS_R, M, tone, 1.3, 24);
+  return { box: boxOf([[RODX - BOSS_R, RODY - BOSS_R, z0], [RODX + BOSS_R, RODY + BOSS_R, z1], c]), svg: vis(dir) ? body + scr : scr + body };
+}
+// spirit flame: a flickering teardrop that always faces the viewer
+function flame(st, x, y){
+  const k = st.fl; if (k < .02) return '';
+  const t = st.time || 0, hh = FL_H*k*(1 + .05*Math.sin(t*13) + .03*Math.sin(t*31)), sw = (Math.sin(t*9) + .5*Math.sin(t*23))*1.6*k;
+  const b = P(x, y, FL_Z), tp = P(x, y, FL_Z + hh), ax = [tp[0] - b[0], tp[1] - b[1]], nx = [-ax[1], ax[0]], nl = Math.hypot(...nx) || 1;
+  const shape2 = (wf, hf) => { const L = [], R = [];
+    for (let i = 0; i <= 16; i++){ const u = i/16, w = wf*Math.sqrt(u)*(1 - u)*2.6, s2 = sw*u*u*hf;
+      const cx = b[0] + ax[0]*u*hf + s2, cy = b[1] + ax[1]*u*hf;
+      L.push([cx + nx[0]/nl*w, cy + nx[1]/nl*w]); R.unshift([cx - nx[0]/nl*w, cy - nx[1]/nl*w]); }
+    return sp([...L, ...R]); };
+  const W = 7.5*k*Math.sqrt(1.5);
+  return `<g pointer-events="none"><path d="${shape2(W*1.25, 1)}" fill="#ffd27a" opacity=".5"/><path d="${shape2(W, .92)}" fill="#ffb84d" opacity=".55" stroke="${INK}" stroke-width=".5" stroke-opacity=".5"/>`
+    + `<path d="${shape2(W*.55, .48)}" fill="#5b8cff" opacity=".85"/></g>`;
+}
+function burner(x, y){
+  const R = BUR.map(([z, r]) => on(PZ(BH + z), ellUV(x, y, r, r, 28)));
+  const liq = [on(PZ(BH + 2.5), ellUV(x, y, 25, 25, 28)), on(PZ(BH + 24), ellUV(x, y, 25, 25, 28))];
+  let s = loft(liq[0], liq[1], n => toneI(n, matOf('#7fa6e6'))) + fill(pd(liq[1]), '#a9c4f2') + ink(pd(liq[1]), .6);
+  let g = '';
+  for (let i = 0; i < R.length - 1; i++) g += loft(R[i], R[i+1], n => tone(n, CLEAR));
+  s += `<g opacity=".55">${g}</g>` + hullInk(R.flat(), 2);
+  const [X, Y] = P(x, y, BH + 18), dx = Dv(...[Math.cos((YAW + 40)*D2R)*20, Math.sin((YAW + 40)*D2R)*20, 0]);
+  s += `<path d="M${f(X + dx[0])} ${f(Y + dx[1] - 10)}L${f(X + dx[0])} ${f(Y + dx[1] + 8)}" stroke="#ffffff" stroke-width="2.2" opacity=".38" stroke-linecap="round"/>`;
+  s += cyl(x, y, BH + 52, BH + 58, 9, STEEL, tone, 1.1, 20) + cyl(x, y, BH + 58, BH + 64, 3.4, STEEL, tone, .9, 14) + cyl(x, y, BH + 64, BH + 67, 2.4, matOf('#efe6cf'), toneI, .8, 12);
+  s += fill(pd(on(PZ(BH + 67), ellUV(x, y, 1.6, 1.6, 10))), '#4a3f33');
+  return s;
+}
+
+/* ---------- scene ---------- */
+function geo(st){
+  const Db = dBall(st), Dr = dRing(st), Rb = rVis(Db), ri = rVis(Dr), th = st.th*D2R;
+  const bx = RODX + ARM_L*Math.sin(th), by = RODY + ARM_L*Math.cos(th), cz = st.cz, H0 = cz + ROD_L, jz = H0 + 30;
+  return { Db, Dr, Rb, ri, ro: ri + RING_W, th, bx, by, cz, H0, jz, bpx: BP0[0] + (BP1[0] - BP0[0])*st.bp, bpy: BP0[1] + (BP1[1] - BP0[1])*st.bp };
+}
+function shadows(g){
+  const k = SHADOW_LEN/SHADOW_K, [sx, sy] = yawTurn(SH), sP = (x, y, z) => P(x + (z - BH)*sx*k, y + (z - BH)*sy*k, BH);
+  const hs = pts => fill(sp(hull(pts.map(p => sP(...p)))), SHADOW);
+  const rg = (x, y, z, r, n = 10) => on(PZ(z), ellUV(x, y, r, r, n));
+  let s = hs([[BASE[0], BASE[1], BH + BASE_H], [BASE[2], BASE[1], BH + BASE_H], [BASE[2], BASE[3], BH + BASE_H], [BASE[0], BASE[3], BH + BASE_H], [BASE[0], BASE[1], BH], [BASE[2], BASE[3], BH]]);
+  s += hs([...rg(RODX, RODY, BH + BASE_H, ROD_R), ...rg(RODX, RODY, ROD_TOP, ROD_R)]);
+  s += hs([...rg(RODX, RODY, RBOSS[0], BOSS_R), ...rg(RODX, RODY, RBOSS[1], BOSS_R)]) + hs([...rg(RODX, RODY, g.jz - 10, BOSS_R), ...rg(RODX, RODY, g.jz + 10, BOSS_R)]);
+  const ring = r => 'M' + ellUV(RING_C[0], RING_C[1], r, r, 32).map(([x, y]) => { const q = sP(x, y, RZ0 + 3); return f(q[0]) + ' ' + f(q[1]); }).join('L') + 'Z';
+  s += `<path d="${ring(g.ro)}${ring(g.ri)}" fill="${SHADOW}" fill-rule="evenodd"/>`;
+  s += hs([...rg(RODX, RODY + BOSS_R, 131.5, 3, 6), ...rg(RODX, RING_C[1] - g.ro, 131.5, 3, 6)]);
+  s += hs(rg(g.bx, g.by, g.cz, g.Rb, 16).concat([[g.bx, g.by, g.cz + g.Rb], [g.bx, g.by, g.cz - g.Rb]]));
+  s += hs([...rg(g.bx, g.by, g.cz, 2.2, 6), ...rg(g.bx, g.by, g.H0, 2.2, 6)]) + hs([...rg(g.bx, g.by, g.H0, 7), ...rg(g.bx, g.by, g.H0 + HND_L, 7)]);
+  s += hs([...rg(RODX, RODY, g.jz, 4, 6), ...rg(g.bx, g.by, g.jz, 10, 12)]);
+  s += hs(BUR.map(([z, r]) => rg(g.bpx, g.bpy, BH + z, r, 16)).flat());
+  return clipTo(BTOP, s);
+}
+function scene(st, m){
+  muClip = 0;
+  const g = geo(st), BM = brassAt(st.Tb), RM = brassAt(st.Tr), items = [];
+  const put = (box, svg) => items.push({ box, svg });
+  let s = board(0, 0, BW, BD, BH, 8) + shadows(g);
+  // stand: base plate, rod in three pieces between the two bosses
+  put([[BASE[0], BASE[1], BH], [BASE[2], BASE[3], BH + BASE_H]], box(BASE[0], BASE[1], BH, BASE[2], BASE[3], BH + BASE_H, m, tone, 1.4));
+  const bz0 = g.jz - 10, bz1 = g.jz + 10;
+  for (const [a, b] of [[BH + BASE_H, RBOSS[0]], [RBOSS[1], bz0], [bz1, ROD_TOP]])
+    put([[RODX - ROD_R, RODY - ROD_R, a], [RODX + ROD_R, RODY + ROD_R, b]], cyl(RODX, RODY, a, b, ROD_R, STEEL, tone, 1.2, 16));
+  items.push(bossItem(RBOSS[0], RBOSS[1], [0, -1, 0], m));
+  const ad = [Math.sin(g.th), Math.cos(g.th), 0];
+  items.push(bossItem(bz0, bz1, [-ad[0], -ad[1], 0], m));
+  // burner
+  put([[g.bpx - 28, g.bpy - 28, BH], [g.bpx + 28, g.bpy + 28, BH + 67]], burner(g.bpx, g.bpy));
+  const fl = flame(st, g.bpx, g.bpy), flRing = st.bp > .5, flBall = !flRing && st.th > TH_HEAT - 1 && g.cz < HEAT_Z + 6;
+  // ring and its stem
+  const rd = ringDraw(RM, g.ri, g.ro), zm = (RZ0 + RZ1)/2;
+  const stem = rod([RODX, RODY + BOSS_R, zm], [RODX, RING_C[1] - g.ro + 1, zm], 3, RM, tone, 1.1, 3, 12);
+  const stemBox = [[RODX - 3, RODY + BOSS_R, zm - 3], [RODX + 3, RING_C[1] - g.ro + 1, zm + 3]];
+  const ringBox = [[RING_C[0] - g.ro, RING_C[1] - g.ro, RZ0], [RING_C[0] + g.ro, RING_C[1] + g.ro, RZ1]];
+  // ball assembly: ball, metal rod, wooden handle in the jaw, arm to the boss
+  const handleLo = cyl(g.bx, g.by, g.H0, g.H0 + 22, 7, HND, tone, 1.1, 18), handleHi = cyl(g.bx, g.by, g.H0 + 38, g.H0 + HND_L, 7, HND, tone, 1.1, 18);
+  const jaw = cyl(g.bx, g.by, g.H0 + 22, g.H0 + 38, 10, m, tone, 1.2, 22);
+  const arm = rod([RODX + ad[0]*BOSS_R, RODY + ad[1]*BOSS_R, g.jz], [g.bx - ad[0]*10, g.by - ad[1]*10, g.jz], 4, STEEL, tone, 1.1, 4, 12);
+  const upper = handleLo + (vis([-ad[0], -ad[1], 0]) ? jaw + arm : arm + jaw) + handleHi;
+  const gRod = (a, b) => b - a > .2 ? cyl(g.bx, g.by, a, b, 2.2, STEEL, tone, 1, 12) : '';
+  const rz0 = g.cz + g.Rb*.8, ball = sphere([g.bx, g.by, g.cz], g.Rb, BM);
+  const asmPts = [[g.bx - g.Rb, g.by - g.Rb, g.cz - g.Rb], [g.bx + g.Rb, g.by + g.Rb, g.H0 + HND_L], [RODX + ad[0]*BOSS_R, RODY + ad[1]*BOSS_R, g.jz - 4], [g.bx + 10, g.by + 10, g.jz]];
+  if (st.th < .5){
+    // ball hangs over the ring: far half of the ring, ball, near half, the ball's top again; the rod in pieces through the hole
+    const low = g.cz + g.Rb*.3 < RZ0, stemFirst = !facing([0, -1, 0]);
+    let c = (flRing ? fl : '') + (stemFirst ? stem : '');
+    if (low) c += ball;
+    c += gRod(rz0, Math.min(g.H0, RZ0)) + rd.far;
+    if (!low) c += ball;
+    c += gRod(Math.max(rz0, RZ0), Math.min(g.H0, RZ1)) + rd.near + sphereAbove([g.bx, g.by, g.cz], g.Rb, BM, RZ1) + gRod(Math.max(rz0, RZ1), g.H0);
+    c += (stemFirst ? '' : stem) + upper;
+    put(boxOf([...asmPts, ...ringBox, ...stemBox, ...(flRing ? [[g.bpx, g.bpy, FL_Z]] : [])]), c);
+  } else {
+    put(stemBox, stem);
+    put(boxOf([...ringBox, ...(flRing ? [[g.bpx - 8, g.bpy - 8, FL_Z]] : [])]), (flRing ? fl : '') + rd.far + rd.near);
+    put(boxOf([...asmPts, ...(flBall ? [[g.bpx, g.bpy, FL_Z]] : [])]), ball + (flBall ? fl : '') + gRod(rz0, g.H0) + upper);
+  }
+  if (fl && !flRing && !flBall) put([[g.bpx - 8, g.bpy - 8, FL_Z], [g.bpx + 8, g.bpy + 8, FL_Z + FL_H]], fl);
+  s += byDepth(items);
+  // labels (shown with the Label switch)
+  const toV = (x, y, z, r) => [x + r*Math.cos(YAW*D2R), y + r*Math.sin(YAW*D2R), z];
+  const lab = [
+    { at: toV(g.bx, g.by, g.cz, g.Rb*.7), text: 'BOLA LOGAM', on: flBall && st.fl > .5 },
+    { at: toV(RING_C[0], RING_C[1], RZ1, g.ro - 2), text: 'CINCIN', on: flRing && st.fl > .5 },
+    { at: toV(g.bx, g.by, (g.cz + g.Rb + g.H0)/2, 2), text: 'GAGANG', on: false },
+    { at: toV(g.bx, g.by, g.H0 + 50, 6), text: 'PEGANGAN KAYU', on: false },
+    { at: toV(RODX, RODY, ROD_TOP - 18, ROD_R), text: 'STATIF', on: false },
+    { at: toV(RODX, RODY, RBOSS[1] - 4, BOSS_R), text: 'KLEM', on: false },
+    { at: toV(g.bpx, g.bpy, BH + 20, 27), text: 'PEMBAKAR SPIRITUS', on: false },
+  ];
+  if (st.fl > .3) lab.push({ at: [g.bpx, g.bpy, FL_Z + FL_H*st.fl*.45], text: 'NYALA API', on: true });
+  return s + xrCallouts(lab, [0, BW, 0, BD, 0, ROD_TOP]);
+}
+
+/* ---------- behaviour: a queue of small steps (each runs from the current state, so any button can interrupt) ---------- */
+const tw = (tg, dur, ez = ease) => ({
+  start(st){ this.a = {}; this.b = {}; let d = 0; for (const k in tg){ this.a[k] = st[k]; this.b[k] = typeof tg[k] === 'function' ? tg[k](st) : tg[k]; d = Math.max(d, Math.abs(this.b[k] - this.a[k])); } this.t = 0; this.skip = d < 1e-3; },
+  step(st, dt){ if (this.skip) return true; this.t += dt; const k = Math.min(1, this.t/dur), e = ez(k); for (const key in this.a) st[key] = this.a[key] + (this.b[key] - this.a[key])*e; return k >= 1; } });
+const fn = h => ({ step(st){ h(st); return true; } });
+const wait = d => ({ start(){ this.t = 0; }, step(st, dt){ this.t += dt; return this.t >= d; } });
+const say = (txt, ms = 2600) => fn(st => ui.flash(typeof txt === 'function' ? txt(st) : txt, ms));
+const easeIn = k => k*k, lin = k => k;
+function run(st, u){
+  if (st.run) return; st.run = true;
+  u.animate(dt => {
+    dt *= st.spd || 1; st.time += dt;
+    for (let guard = 0; st.q.length && guard < 30; guard++){ const t = st.q[0];
+      if (!t.init){ t.init = true; if (t.start) t.start(st); }
+      if (t.step(st, dt)){ if (st.q[0] === t) st.q.shift(); dt = 0; } else break; }
+    const go = st.q.length > 0 || st.fl > .01; if (!go) st.run = false; return go; });
+}
+const plan = (st, u, tasks) => { st.q = tasks.filter(Boolean); run(st, u); };
+const contactZ = st => { const rb = rVis(dBall(st)), ri = rVis(dRing(st)); return RZ1 + Math.sqrt(Math.max(0, rb*rb - ri*ri)); };
+const home = st => [tw({ fl: 0 }, .3), st.bp > .001 ? tw({ bp: 0 }, 1.1) : null];
+const BELOW_MSG = 'Bola sudah lolos di bawah cincin. Tekan Dinginkan untuk mengulang.';
+
+function insert(st, u){
+  if (st.below) return u.flash(BELOW_MSG, 2600);
+  if (st.stuck) return u.flash('Bola masih tersangkut di atas cincin.', 2200);
+  const pass = dBall(st) < dRing(st);
+  plan(st, u, [...home(st), tw({ cz: REST_Z }, .7), tw({ th: 0 }, 1),
+    ...(pass ? [tw({ cz: BELOW_Z }, 1.2), say(s => `Ø bola ${mm(dBall(s))} mm < Ø lubang ${mm(dRing(s))} mm, jadi bola lolos.`), wait(.6), tw({ cz: REST_Z }, 1.2)]
+             : [tw({ cz: contactZ }, 1.1), fn(s => { s.stuck = true; }), say(s => `Ø bola ${mm(dBall(s))} mm > Ø lubang ${mm(dRing(s))} mm: bola tersangkut!`, 3200)])]);
+}
+function heatBall(st, u){
+  if (st.below) return u.flash(BELOW_MSG, 2600);
+  const first = !st.seenX; st.seenX = true;
+  plan(st, u, [...home(st), fn(s => { s.stuck = false; }), tw({ cz: REST_Z }, .7), tw({ th: TH_HEAT }, 1.1), tw({ cz: HEAT_Z }, .8), tw({ fl: 1 }, .4),
+    first ? say('Ilustrasi: pemuaian diperbesar agar terlihat.', 2000) : null, first ? tw({ Tb: 140 }, 2, lin) : null,
+    say('Kalor berpindah dari api ke bola lalu merambat di batang; pegangan kayu isolator.', 2800),
+    tw({ Tb: 300 }, first ? 2.6 : 3.6, k => 1 - (1 - k)*(1 - k)),
+    say('Partikel bola bergetar makin kuat dan jaraknya makin jauh: bola memuai.', 3000)]);
+}
+const heatRingTask = () => ({ step(st, dt){
+  st.Tr = Math.min(280, st.Tr + dt*60);
+  if (st.stuck){ const rb = rVis(dBall(st)), ri = rVis(dRing(st));
+    if (ri < rb) st.cz = contactZ(st);
+    else { st.stuck = false;
+      st.q.splice(1, st.q.length, tw({ cz: (RZ0 + RZ1)/2, Tr: st.Tr + 25 }, .6, easeIn),
+        say(s => `Cincin memuai: Ø lubang ${mm(dRing(s))} mm > Ø bola ${mm(dBall(s))} mm, bola lolos.`, 3200),
+        tw({ fl: 0 }, .3), tw({ bp: 0 }, 1.1), tw({ cz: BELOW_Z }, .7, easeIn), fn(s => { s.below = true; }));
+      return true; } }
+  if (st.Tr >= 280){ st.q.splice(1, st.q.length, say(s => `Cincin 280 °C: Ø lubang membesar jadi ${mm(dRing(s))} mm.`), wait(.8), tw({ fl: 0 }, .3), tw({ bp: 0 }, 1.1)); return true; }
+  return false; } });
+function heatRing(st, u){
+  if (st.below) return u.flash(BELOW_MSG, 2600);
+  plan(st, u, [tw({ fl: 0 }, .3), !st.stuck ? tw({ cz: REST_Z }, .8) : null, tw({ bp: 1 }, 1.2), tw({ fl: 1 }, .4),
+    say('Kalor dari api membuat cincin ikut panas dan memuai; lubangnya membesar.', 2800), heatRingTask()]);
+}
+function cool(st, u){
+  plan(st, u, [...home(st), fn(s => { s.stuck = false; }), tw({ cz: REST_Z }, 1), fn(s => { s.below = false; }), tw({ th: 0 }, 1),
+    say('Didinginkan: partikel bergetar lebih lemah, bola dan cincin menyusut kembali.', 3000), tw({ Tb: 30, Tr: 30 }, 3)]);
+}
+
+const ui = mountFigure({
+  fig: '3', turn: 'full', title: 'Alat muai bola dan cincin', size: [BW, BD, ROD_TOP], palette: 'cobalt',
+  state: { Tb: 30, Tr: 30, th: 0, cz: REST_Z, bp: 0, fl: 0, time: 0, q: [], run: false, stuck: false, below: false },
+  scene,
+  stats: st => [
+    { label: 'Suhu bola', value: Math.round(st.Tb) + ' °C' },
+    { label: 'Ø bola', value: mm(dBall(st)) + ' mm', small: true },
+    { label: 'Suhu cincin', value: Math.round(st.Tr) + ' °C', small: true },
+    { label: 'Ø cincin', value: mm(dRing(st)) + ' mm', small: true } ],
+  buttons: [
+    { label: 'Masukkan bola', onClick: insert },
+    { label: 'Panaskan bola', onClick: heatBall },
+    { label: 'Masukkan lagi', onClick: insert },
+    { label: 'Panaskan cincin', onClick: heatRing },
+    { label: 'Dinginkan', onClick: cool } ],
+  params(st, q){
+    if (q.has('speed')) st.spd = +q.get('speed');   // tes: percepat waktu
+    if (q.get('fast') === '1') document.getElementById('art').removeAttribute('filter');   // tes headless: tanpa filter goresan tangan
+    if (q.has('tb')) st.Tb = +q.get('tb');
+    if (q.has('tr')) st.Tr = +q.get('tr');
+    const pos = q.get('pos');
+    if (pos === 'heat'){ st.th = TH_HEAT; st.cz = HEAT_Z; }
+    if (pos === 'mid') st.cz = (RZ0 + RZ1)/2;
+    if (pos === 'stuck' && dBall(st) > dRing(st)){ st.stuck = true; st.cz = contactZ(st); }
+    if (pos === 'below'){ st.below = true; st.cz = BELOW_Z; }
+    if (q.get('burner') === 'ring') st.bp = 1;
+    if (q.get('flame') === '1') st.fl = 1;
+  },
+});
+xrMount(() => ui, () => '', { labelsOnly: true });
+</script></body></html>
